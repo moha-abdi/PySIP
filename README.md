@@ -28,7 +28,7 @@ voip = VOIP('username', 'server:port', 'password')
 text = "Hello, this is a test call"
 
 voip.call('destination_number', tts=True, text=text)
-
+```
 ### SIP Message Filters
 
 PySIP provides filters for handling specific SIP messages:
@@ -43,7 +43,7 @@ def handle_invite(msg):
 @voip.client.on_message(filters=SipFilter.OK)
 def handle_ok(msg):
     print('Received OK:', msg)
-
+```
 ### Audio Handling
 
 You can provide audio files or generate TTS audio for the call:
@@ -54,11 +54,13 @@ from pysip import TTS
 tts = TTS('Hello, this is a test call', 'voice')
 audio_file = await tts.generate_audio()
 
-voip.call('number', audio_file=audio_file) or call using TTS
-
-text = "Hello, this is a call fro Moha"
 voip.call('number', audio_file=audio_file)
-
+```
+Or call using TTS (Auto geerated audio from text input)
+```python
+text = "Hello, this is a call for Moha"
+voip.call('number', audio_file=audio_file)
+```
 ## Documentation
 
 Detailed documentation and usage examples are coming soon. Please stay tuned!
@@ -69,5 +71,6 @@ Contributions are welcome! Will add more details soon.
 
 ## License
 
-This project is currently unlicensed.
+This project is licensed under the [MIT License](LICENSE).
+
 
