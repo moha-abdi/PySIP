@@ -10,11 +10,12 @@ PySIP is an open-source Python library for making VoIP calls using the SIP (Sess
 
 ## Installation
 
-You can install PySIP using pip:
+Currently I didn't add pip installation for
+version `v1.0.0` so clone the repository instead:
 
 ```bash
-pip install pysip
-
+git clone https://github.com/pysip/pysip.git
+```
 ## Usage
 
 ### Making a Call
