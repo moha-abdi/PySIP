@@ -33,5 +33,3 @@ DEBUG = True
 def _print_debug_info(*args, **kwargs):
     if DEBUG:
         print(args, kwargs)
-
-import pyrogram
