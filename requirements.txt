@@ -1,0 +1,3 @@
+pydub
+requests
+edge-tts

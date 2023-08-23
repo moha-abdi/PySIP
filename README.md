@@ -59,7 +59,7 @@ voip.call('number', audio_file=audio_file)
 Or call using TTS (Auto geerated audio from text input)
 ```python
 text = "Hello, this is a call for Moha"
-voip.call('number', audio_file=audio_file)
+voip.call('number', tts=True, text=text)
 ```
 ## Documentation
 
