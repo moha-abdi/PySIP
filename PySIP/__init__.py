@@ -24,8 +24,8 @@ __all__ = [
     'rtp'
 ]
 
-__version__ = "1.0.0"
-__license__ = "No license"
+__version__ = "1.2.0"
+__license__ = "MIT License"
 __copyright__ = "Copyright (C) 2023-present Moha"
 
 DEBUG = True

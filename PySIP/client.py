@@ -281,7 +281,7 @@ class Client:
             msg += f"Min-SE: 90\r\n"
             msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
             msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
-            msg += f"User-Agent: WAAFI-iOS-8.0.12\r\n"
+            msg += f"User-Agent: PySIP-1.2.0\r\n"
             msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
