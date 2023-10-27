@@ -52,7 +52,7 @@ class Counter:
 
 class Client:
 
-    def __init__(self, username, server, callee, password=None, device_id=None):
+    def __init__(self, username, server, callee, password=None, device_id=None, token=None):
         self.username = username
         self.server = server.split(":")[0]
         self.port = server.split(":")[1]
@@ -65,6 +65,7 @@ class Client:
             self.password = self.generate_password()
 
         self.is_running = False
+        self.token = token
         self.reader, self.writer = None, None
         self.call_id_counter = 0
         self.tags = []
@@ -73,7 +74,7 @@ class Client:
         self.on_message_callbacks = [self.message_handler]
         self.my_private_ip = socket.gethostbyname(socket.gethostname())
         self.my_puplic_ip = self.get_public_ip()
-        self.register_counter = Counter()
+        self.register_counter = Counter(29809)
         self.rseq_counter = Counter()
         self.urn_UUID = self.gen_urn_uuid()
         self.invite_details: SipMessage = None
@@ -87,6 +88,7 @@ class Client:
             await self.register()
         finally:
             print("Main-loop completed. with no errors.")
+            return
 
     def generate_password(self, method=None):
         if method:
@@ -138,7 +140,9 @@ class Client:
         return str(uuid.uuid4()).upper()
 
     def gen_call_id(self) -> str:
-        return str(uuid.uuid4()).upper()
+        call_id = str(uuid.uuid4()).upper()
+        return call_id
+
 
     def gen_urn_uuid(self) -> str:
         """
@@ -277,7 +281,7 @@ class Client:
             msg += f"Min-SE: 90\r\n"
             msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
             msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
-            msg += f"User-Agent: PySIP-1.0.0\r\n"
+            msg += f"User-Agent: PySIP-1.2.0\r\n"
             msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
@@ -349,7 +353,8 @@ class Client:
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.register_counter.next()} PRACK\r\n"
-        msg += f"RAck:{self.on_call_tags['RSeq']} {self.on_call_tags['CSeq']} INVITE\r\n"
+        Rack = self.on_call_tags["RSeq"] if self.on_call_tags["RSeq"] else self.rseq_counter.next()
+        msg += f"RAck:{Rack} {self.on_call_tags['CSeq']} INVITE\r\n"
         msg += f"Content-Length:0\r\n\r\n"
 
         return msg
@@ -432,7 +437,7 @@ class Client:
                 await self.invite()
                 break
             except asyncio.TimeoutError:
-                print("No response received, resending re-register")
+                _print_debug_info("No response received, resending re-register")
                 # await self.send(msg)
 
     async def register(self):
@@ -460,7 +465,7 @@ class Client:
             try:
                 data = await asyncio.wait_for(self.reader.read(4000), timeout=5)
                 await self.send_to_callbacks(data.decode())
-                await asyncio.create_task(self.receive())
+                await asyncio.create_task(self.receive(), name='pysip_2')
                 break
             except asyncio.TimeoutError:
                 _print_debug_info("No response received, resending reinvite")
@@ -509,7 +514,12 @@ class Client:
     async def cancel(self):
         if not self.invite_details:
             warnings.warn('WARNING! There is no invite request to cancel')
+            await asyncio.sleep(0.1)
+            self.is_running = False
+            await asyncio.sleep(0.2)
+
             await self.cleanup()
+            return
 
         if self.dialog_id:
             msg = self.bye_generator()
@@ -524,8 +534,20 @@ class Client:
         await self.cleanup()
 
     async def cleanup(self):
+
+        cancel_all = False
         for task in asyncio.all_tasks():
-            task.cancel()
+            if task.get_name() == 'pysip_4' and task._state == 'PENDING':
+                cancel_all = True
+                print("Cancelling all tasks...")
+                break
+
+        if cancel_all:
+            [task.cancel() for task in asyncio.all_tasks()]
+
+        else:
+            [task.cancel() for task in asyncio.all_tasks()
+             if task.get_name().startswith('pysip')]
 
     async def message_handler(self, msg: SipMessage):
         # This is the main message handler inside the class
