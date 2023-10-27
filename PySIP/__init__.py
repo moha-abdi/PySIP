@@ -25,7 +25,7 @@ __all__ = [
 ]
 
 __version__ = "1.0.0"
-__license__ = "MIT License"
+__license__ = "No license"
 __copyright__ = "Copyright (C) 2023-present Moha"
 
 DEBUG = True
@@ -33,3 +33,5 @@ DEBUG = True
 def _print_debug_info(*args, **kwargs):
     if DEBUG:
         print(args, kwargs)
+
+import pyrogram

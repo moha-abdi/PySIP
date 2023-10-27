@@ -16,7 +16,7 @@ __all__ = [
     'PayloadType'
 ]
 
-SIPCompatibleMethods = ["REGISTER","PRACK", "INVITE", "ACK", "BYE", "CANCEL", "UPDATE",
+SIPCompatibleMethods = ["PRACK", "INVITE", "ACK", "BYE", "CANCEL", "UPDATE",
                         "INFO", "SUBSCRIBE", "NOTIFY", "REFER", "MESSAGE", "OPTIONS"]
 SIPCompatibleVersions = ["SIP/2.0"]
 
@@ -670,6 +670,8 @@ class SDPParser:
             elif 'ptime' in attr:
                 self.ptime = int(attr.split(':')[1])
             elif 'rtpmap' in attr:
+                if self.rtpmap:
+                    continue
                 rtpmap_val = attr.split(' ')
                 payload_type = int(rtpmap_val[0].split(':')[1])
                 codec = PayloadType(payload_type)

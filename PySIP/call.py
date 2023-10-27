@@ -3,6 +3,7 @@ import signal
 from typing import Literal
 import wave
 import edge_tts
+from .CustomCommuicate import CommWithPauses, NoPausesFound
 from pydub import AudioSegment
 import os
 
@@ -64,6 +65,7 @@ class VOIP:
         *,
         password: str=None,
         device_id: str =None,
+        token: str =None
     ) -> None:
 
         self.username = username
@@ -72,23 +74,28 @@ class VOIP:
         self.port = int(route.split(":")[1])
         self.password = password
         self.device_id = device_id
+        self.token = token
         self.call_state = CallState.DAILING
         self.status = CallStatus.INACTIVE
         self.flag = False
         self.callee = None
         self.rtp_session = None
+        self.last_error = None
+        self.received_bytes = False
+        self.last_body = None
 
         self.client = Client(
             self.username,
             self.route,
             self.callee,
             self.password,
-            self.device_id
+            self.device_id,
+            self.token
         )
         self.on_message()
 
     async def call(self, callee: str | int, audio_file: str = None, tts: bool = False,
-        text: str = None):
+        text: str = None, language: str = 'so-SO-UbaxNeural'):
         """
         Initiate a call with the provided number.
 
@@ -97,6 +104,7 @@ class VOIP:
                 :args:`audio_file` If provided this wil be used and no audio ill be generated.
                 :args:`tts` Whether to use auto-generated audio from text.
                 :arg:`text` This is the text used to generate the TTS.
+                :arg:`language` The language that will be used t generate the TTS.
 
 
         The :meth:`call` method initializes a call to the specified `callee` number or identifier.
@@ -117,23 +125,28 @@ class VOIP:
 
         self.tts = tts
         self.text = text
+        self.language = language
         self.audio_file = audio_file
 
         self.client.callee = self.callee
         signal.signal(signal.SIGINT, self.signal_handler)
 
         if asyncio.get_event_loop().is_running():
-            await asyncio.create_task(self.client.main(), name='main_function')
+            await asyncio.create_task(self.client.main(), name='pysip_1')
         else:
             asyncio.run(self.client.main())
 
     def on_message(self):
         @self.client.on_message()
         async def request_handler(msg: SipMessage):
+            print(msg.data)
             if not self.flag:
                 return
 
             if msg.status in [SIPStatus.RINGING, SIPStatus.SESSION_PROGRESS]:
+                if msg.body: # Pre-set the body in-case the serve doesn't send body everytime
+                    self.last_body = msg.body
+
                 if self.client.dialog_id is None:
                     self.client.dialog_id = msg.did
 
@@ -149,6 +162,9 @@ class VOIP:
 
             elif msg.get_header('Reason'):
                 print('Callee hanged-up')
+                self.last_error = "Callee hanged-up"
+                if self.rtp_session:
+                    self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer)
                 await self.client.hangup(self.rtp_session)
 
         @self.client.on_message(filters=SipFilter.RESPONSE)
@@ -156,12 +172,16 @@ class VOIP:
             if not message.status:
                 return
 
+            if message.method in ['PRACK', 'ACK']:
+                    return
+
             if str(message.status).startswith('4') and message.status != SIPStatus.UNAUTHORIZED:
                 """
                 Handling client-side errors with status code 4xx
                 """
                 _print_debug_info('Client-side error, ending the call...')
                 print('Error: ', message.status.description)
+                self.last_error = str(message.status)
                 await self.client.hangup(self.rtp_session)
 
             elif str(message.status).startswith('5'):
@@ -170,6 +190,7 @@ class VOIP:
                 """
                 _print_debug_info('Server-side error, ending the call...')
                 print('Error: ', message.status.description)
+                self.last_error = str(message.status)
                 await self.client.hangup(self.rtp_session)
 
             elif str(message.status).startswith('6'):
@@ -178,6 +199,7 @@ class VOIP:
                 """
                 _print_debug_info('Global error, ending the call...')
                 print('Error: ', message.status.description)
+                self.last_error = str(message.status)
                 await self.client.hangup(self.rtp_session)
 
         @self.client.on_message(filters=SipFilter.REGISTER)
@@ -221,18 +243,24 @@ class VOIP:
                 # the re-invite with authoriation
                 _print_debug_info("This event occured: ", message.status)
                 self.flag = True
+                if message.body: # Pre-set the body in-case the serve doesn't send body everytime
+                    self.last_body = message.body
 
     async def make_call(self, message: SipMessage):
         if self.call_state != CallState.DAILING:
             return
         self.call_state = CallState.RINGING
 
-        sdp = SipMessage.parse_sdp(message.body)
-        rtp_session = RTPClient({0: PayloadType.PCMU}, self.client.my_private_ip, 64417,
+        body = self.last_body
+        if message.body:
+            body = message.body
+
+        sdp = SipMessage.parse_sdp(body)
+        rtp_session = RTPClient(sdp.rtpmap, self.client.my_private_ip, 64417,
                                     sdp.ip_address, sdp.port, TransmitType.SENDRECV)
         self.rtp_session = rtp_session
         rtp_session.start()
-        asyncio.create_task(self.audio_writer(rtp_session))
+        asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
 
     async def audio_writer(self, session: RTPClient):
         while self.call_state != CallState.ANSWERED:
@@ -241,19 +269,50 @@ class VOIP:
         await asyncio.sleep(0.03)
         audio_file = self.audio_file
         if self.tts:
-            tts = TTS(self.text, 'so-SO-MuuseNeural', 'tts.mp3')
+            tts = TTS(self.text, self.language, 'tts.mp3')
             audio_file = await tts.generate_audio()
 
         session.send_now(audio_file)
 
         sleep_time = self.get_audio_duration(audio_file)
         await asyncio.sleep(sleep_time + 4)
+        self.received_bytes = self.bytes_to_audio(session.pmin.buffer)
+        os.remove('recorded.wav')
+        self.last_error = "Call ended"
         await self.client.hangup(session)
 
         await asyncio.sleep(1)
 
+    def bytes_to_audio(self, buffer):
+        with wave.open('recorded.wav', 'wb') as file:
+            file.setnchannels(1) # mono
+            file.setsampwidth(1)
+            file.setframerate(8000)
+            file.writeframes(buffer.read())
+
+            # wav to mp3
+            audio: AudioSegment = AudioSegment.from_wav('recorded.wav')
+            audio.set_sample_width(2)
+            audio.export('recorded.mp3')
+
+            return True
+
+    @classmethod
+    def audio_duration(cls, audio_file_path):
+        """
+        works with any audio format
+        """
+        try:
+            audio = AudioSegment.from_file(audio_file_path)
+            duration_ms = len(audio)
+            duration_seconds = duration_ms / 1000
+            return duration_seconds
+        except Exception as e:
+            print("Error:", e)
+            return None
 
     def get_audio_duration(self, file_path: str) -> float:
+        # wav format only
         with wave.open(file_path, 'rb') as wav_file:
             sample_rate = wav_file.getframerate()
             num_frames = wav_file.getnframes()
@@ -262,13 +321,13 @@ class VOIP:
 
     def signal_handler(self, sig, frame):
         print("\nCtrl+C detected. Sending CANCEL request and exiting...")
-        asyncio.create_task(self.client.hangup(self.rtp_session))
+        asyncio.create_task(self.client.hangup(self.rtp_session), name='pysip_4')
 
 class TTS:
     def __init__(
         self,
         text: str,
-        voice: Literal['so-SO-UbaxNeural', 'so-SO-MuuseNeural'],
+        voice: str,
         output_filename: str
     ) -> None:
 
@@ -277,8 +336,13 @@ class TTS:
         self.output_filename = output_filename
 
     async def generate_audio(self) -> str:
-        communicate = edge_tts.Communicate(self.text, self.voice)
-        await communicate.save(self.output_filename)
+        try:
+            communicate = CommWithPauses(self.text, self.voice)
+            await communicate.save(self.output_filename)
+        except NoPausesFound:
+            communicate = edge_tts.Communicate(self.text, self.voice)
+            await communicate.save(self.output_filename)
+
         file_name = self.convert_to_wav()
         self.cleanup()
 
