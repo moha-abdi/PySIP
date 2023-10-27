@@ -9,7 +9,7 @@ async def main():
     await voip.call('11111111111', tts=True, text="Hello")
 
     if voip.received_bytes:
-        print('Recorded audio saved in recored.mp3')
+        print('Recorded audio saved to recored.mp3')
 
 
 asyncio.run(main())
