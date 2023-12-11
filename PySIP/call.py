@@ -73,7 +73,7 @@ class VOIP:
         self.route = route
         self.server = route.split(":")[0]
         self.port = int(route.split(":")[1])
-        self.connection_type = ConnectionType(connection_type)
+        self.connection_type = connection_type
         self.password = password
         self.device_id = device_id
         self.token = token
