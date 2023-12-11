@@ -465,9 +465,14 @@ class Client:
             await callback(data_formatted)
 
     async def send(self, msg):
-        await self.send_to_callbacks(msg)
-        self.writer.write(msg.encode())
-        await self.writer.drain()
+        if self.connection_type == ConnectionType.UDP:
+            await self.send_to_callbacks(msg)
+            await self.writer.write(msg.encode())
+
+        else:
+            await self.send_to_callbacks(msg)
+            self.writer.write(msg.encode())
+            await self.writer.drain()
 
     async def receive(self):
         while self.is_running:
