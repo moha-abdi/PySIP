@@ -2,7 +2,7 @@ from PySIP.call import VOIP
 import asyncio
 
 
-voip = VOIP('13033333096', 'sever:port', password="??")
+voip = VOIP('13033333096', 'sever:port', connection_type='UDP', password="??")
 
 
 async def main():
