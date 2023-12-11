@@ -14,8 +14,9 @@ from typing import Dict, Literal
 import warnings
 
 import requests
-from .filters import SipFilter, SipMessage, SIPMessageType, SIPCompatibleMethods, SIPStatus
+from .filters import SipFilter, SipMessage, SIPMessageType, SIPCompatibleMethods, SIPStatus, ConnectionType
 from . import _print_debug_info
+from .udp_handler import open_udp_connection
 
 __all__ = [
     'Client',
@@ -52,7 +53,10 @@ class Counter:
 
 class Client:
 
-    def __init__(self, username, server, callee, password=None, device_id=None, token=None):
+    def __init__(
+        self, username, server, callee, connection_type: ConnectionType,
+        password=None, device_id=None, token=None
+    ):
         self.username = username
         self.server = server.split(":")[0]
         self.port = server.split(":")[1]
@@ -65,6 +69,7 @@ class Client:
             self.password = self.generate_password()
 
         self.is_running = False
+        self.connection_type = connection_type
         self.token = token
         self.reader, self.writer = None, None
         self.call_id_counter = 0
@@ -86,6 +91,11 @@ class Client:
         try:
             await self.connect()
             await self.register()
+
+        except Exception as e:
+            print("Error: ", e)
+            return
+
         finally:
             print("Main-loop completed. with no errors.")
             return
@@ -163,14 +173,46 @@ class Client:
         return response_hash
 
     async def connect(self):
-        self.is_running = True
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
-        ssl_context.set_ciphers("AES128-SHA")
-        self.reader, self.writer = await asyncio.open_connection(
-            self.server,
-            self.port,
-            ssl=ssl_context
-        )
+        try:
+            if self.connection_type == ConnectionType.TCP:
+                self.is_running = True
+                self.reader, self.writer = await asyncio.open_connection(
+                    self.server,
+                    self.port,
+                )
+
+            elif self.connection_type == ConnectionType.UDP:
+                self.is_running = True
+
+                self.reader, self.writer = await open_udp_connection(
+                    self.server,
+                    self.port
+                )
+
+            elif self.connection_type == ConnectionType.TLS:
+                self.is_running = True
+                ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+                self.reader, self.writer = await asyncio.open_connection(
+                    self.server,
+                    self.port,
+                    ssl=ssl_context
+                )
+
+            elif self.connection_type == ConnectionType.TLSv1:
+                self.is_running = True
+                ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
+                ssl_context.set_ciphers("AES128-SHA")
+                self.reader, self.writer = await asyncio.open_connection(
+                    self.server,
+                    self.port,
+                    ssl=ssl_context
+                )
+
+        except (OSError, ssl.SSLError) as e:
+            print(f"Error during connection: {e}")
+            # Handle the error as needed
+        except Exception as e:
+            print(f"Unexpected error: {e}")
 
     def build_register_message(self, auth=False, msg=None, data=None):
 

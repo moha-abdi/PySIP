@@ -1,6 +1,6 @@
 from enum import IntEnum, Enum
 import random
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 __all__ = [
     'SIPCompatibleMethods',
@@ -28,6 +28,21 @@ class SIPMessageType(IntEnum):
 
     MESSAGE = 1
     RESPONSE = 0
+
+
+class ConnectionType(Enum):
+    TCP = 1, 'TCP'
+    UDP = 2, 'UDP'
+    TLS = 3, 'TLS'
+    TLSv1 = 4, 'TLSv1'
+
+    def __new__(cls, value: object, conn_type: Literal['TCP', 'UDP', 'TLS', 'TLSv1']):
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.conn_type = conn_type
+        cls._value2member_map_[conn_type] = obj
+
+        return obj
 
 
 class Filter:
