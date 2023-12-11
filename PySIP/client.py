@@ -59,7 +59,7 @@ class Counter:
 class Client:
 
     def __init__(
-        self, username, server, callee, connection_type: ConnectionType,
+        self, username, server, callee, connection_type: str,
         password=None, device_id=None, token=None
     ):
         self.username = username
@@ -75,7 +75,8 @@ class Client:
             self.password = self.generate_password()
 
         self.is_running = False
-        self.connection_type = connection_type
+        self.CTS = 'TLS' if 'TLS' in connection_type else connection_type
+        self.connection_type = ConnectionType(connection_type)
         self.token = token
         self.reader, self.writer = None, None
         self.call_id_counter = 0
@@ -232,10 +233,10 @@ class Client:
             if not self.my_puplic_ip:
                 self.my_puplic_ip = ip
 
-            new_via = f"Via: SIP/2.0/TLS {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+            new_via = f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
             msg = re.sub(r"Via:.*[\r\n]", new_via, msg, flags=re.M)
 
-            new_contact = (f"Contact: <sip:{self.username}@{ip}:{port};transport=TLS;ob>;" +
+            new_contact = (f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>;" +
             f'reg-id=1;+sip.instance="<urn:uuid:{self.urn_UUID}>"\r\n')
             msg = re.sub(r"Contact:.*[\r\n]", new_contact, msg, flags=re.M)
 
@@ -245,7 +246,7 @@ class Client:
 
             msg = re.sub(r"CSeq: \d+", f"CSeq: {self.register_counter.next()}", msg)
 
-            uri = f'sip:{self.server}:{self.port};transport=TLS'
+            uri = f'sip:{self.server}:{self.port};transport={self.CTS}'
             msg += (f'Authorization: Digest username="{self.username}",' +
                     f'realm="{self.server}", nonce="{nonce}", uri="{uri}",'
                     f'response="{self.generate_response("REGISTER", nonce, uri)}"\r\n')
@@ -261,8 +262,8 @@ class Client:
             # generated_checksum = self.generate_password(method='REGISTER') # not required at all
 
             msg = (f"REGISTER sip:{self.server} SIP/2.0\r\n"
-                f"Via: SIP/2.0/TLS {ip}:{port};rport;branch={str(branch_id).upper()};alias\r\n"
-                f"Route: <sip:{self.server}:{port};transport=TLS;lr>\r\n"
+                f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(branch_id).upper()};alias\r\n"
+                f"Route: <sip:{self.server}:{port};transport={self.CTS};lr>\r\n"
                 f"Max-Forwards: 70\r\n"
                 f"From: <sip:{self.username}@{self.server}>;tag={tag}\r\n"
                 f"To: <sip:{self.username}@{self.server}>\r\n"
@@ -271,7 +272,7 @@ class Client:
                 # f"Client-Checksum: {generated_checksum.checksum}\r\n"
                 # f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
                 f"Supported: outbound, path\r\n"
-                f"Contact: <sip:{self.username}@{ip}:{port};transport=TLS;ob>;" +
+                f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>;" +
                 f'reg-id=1;+sip.instance="<urn:uuid:{self.urn_UUID}>"\r\n'
                 f"Expires: 60\r\n"
                 f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
@@ -294,7 +295,7 @@ class Client:
             new_cseq = f"CSeq: {self.register_counter.next()} INVITE\r\n"
             msg = re.sub(r"CSeq:.*[\r\n]", new_cseq, msg, flags=re.M)
 
-            uri = f'sip:{self.callee}@{self.server}:{self.port};transport=TLS'
+            uri = f'sip:{self.callee}@{self.server}:{self.port};transport={self.CTS}'
             old_client_timestamp = re.findall(r"Client-Timestamp:.*[\r\n]", msg)
 
             new_value = (old_client_timestamp[0] +
@@ -314,15 +315,15 @@ class Client:
             call_id = self.call_id
             # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
-            msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport=TLS SIP/2.0\r\n"
-            msg += f"Via: SIP/2.0/TLS {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+            msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
+            msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
             msg += f"Max-Forwards: 70\r\n"
             msg += f"From:sip:{self.username}@{self.server};tag={tag}\r\n"
             msg += f"To: sip:{self.callee}@{self.server}\r\n"
-            msg += f"Contact: <sip:{self.username}@{ip}:{port};transport=TLS;ob>\r\n"
+            msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
             msg += f"Call-ID: {call_id}\r\n"
             msg += f"CSeq: {self.register_counter.next()} INVITE\r\n"
-            msg += f"Route: <sip:{self.server}:{self.port};transport=TLS;lr>\r\n"
+            msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
             msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
             msg += f"Supported: replaces, 100rel, timer, norefersub\r\n"
             msg += f"Session-Expires: 1800\r\n"
@@ -346,14 +347,14 @@ class Client:
         data_parsed = SipMessage(data)
         data_parsed.parse()
 
-        msg = f"ACK sip:{self.callee}@{self.server}:{self.port};transport=TLS SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/TLS {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg = f"ACK sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={data_parsed.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
         msg += f"Call-ID: {data_parsed.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} ACK\r\n"
-        msg += f"Route: <sip:{self.server}:{self.port};transport=TLS;lr>\r\n"
+        msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
         msg += f"Content-Length:  0\r\n\r\n"
 
         return msg
@@ -362,8 +363,8 @@ class Client:
         peer_ip, peer_port = self.writer.get_extra_info("peername")
         _, port = self.writer.get_extra_info('sockname')
 
-        msg = f"ACK sip:{peer_ip}:{self.port};transport=tls;did={self.dialog_id} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/TLS {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg = f"ACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
@@ -377,15 +378,15 @@ class Client:
         _, port = self.writer.get_extra_info('sockname')
         ip = self.my_puplic_ip
 
-        msg = f"CANCEL sip:{self.callee}@{self.server}:{self.port};transport=TLS SIP/2.0\r\n"
-        msg += (f"Via: SIP/2.0/TLS {ip}:{port};" +
+        msg = f"CANCEL sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
+        msg += (f"Via: SIP/2.0/{self.CTS} {ip}:{port};" +
                 f"rport;branch={self.invite_details.branch};alias\r\n")
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From:sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server}\r\n"
         msg += f"Call-ID: {self.invite_details.call_id}\r\n"
         msg += f"CSeq: {self.invite_details.cseq} CANCEL\r\n"
-        msg += f"Route: <sip:{self.server}:{self.port};transport=TLS;lr>\r\n"
+        msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
         msg += f"Content-Length:  0\r\n\r\n"
 
         return msg
@@ -394,8 +395,8 @@ class Client:
         peer_ip, peer_port = self.writer.get_extra_info("peername")
         _, port = self.writer.get_extra_info('sockname')
 
-        msg = f"PRACK sip:{peer_ip}:{self.port};transport=tls;did={self.dialog_id} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/TLS {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg = f"PRACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
@@ -411,8 +412,8 @@ class Client:
         peer_ip, peer_port = self.writer.get_extra_info("peername")
         _, port = self.writer.get_extra_info('sockname')
 
-        msg = f"BYE sip:{peer_ip}:{self.port};transport=tls;did={self.dialog_id} SIP/2.0\r\n"
-        msg += (f"Via: SIP/2.0/TLS {self.my_puplic_ip}:{port};rport;" +
+        msg = f"BYE sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
+        msg += (f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;" +
                 f"branch={str(uuid.uuid4()).upper()};alias\r\n")
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
