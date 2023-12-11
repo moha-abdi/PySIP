@@ -7,7 +7,7 @@ from .CustomCommuicate import CommWithPauses, NoPausesFound
 from pydub import AudioSegment
 import os
 
-from .filters import SIPMessageType, SIPStatus, SipMessage
+from .filters import SIPMessageType, SIPStatus, SipMessage, ConnectionType
 from .client import Client, SipFilter
 from enum import Enum
 from .rtp import PayloadType, RTPClient, TransmitType
@@ -63,6 +63,7 @@ class VOIP:
         username: str,
         route: str,
         *,
+        connection_type: Literal['TCP', 'UDP', 'TLS', 'TLSv1'] = 'TCP',
         password: str=None,
         device_id: str =None,
         token: str =None
@@ -72,6 +73,7 @@ class VOIP:
         self.route = route
         self.server = route.split(":")[0]
         self.port = int(route.split(":")[1])
+        self.connection_type = ConnectionType(connection_type)
         self.password = password
         self.device_id = device_id
         self.token = token
@@ -88,6 +90,7 @@ class VOIP:
             self.username,
             self.route,
             self.callee,
+            self.connection_type,
             self.password,
             self.device_id,
             self.token
@@ -139,6 +142,7 @@ class VOIP:
     def on_message(self):
         @self.client.on_message()
         async def request_handler(msg: SipMessage):
+            print(msg.data)
             if not self.flag:
                 return
 
