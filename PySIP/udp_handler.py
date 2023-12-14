@@ -48,6 +48,9 @@ class UdpWriter:
     async def write(self, data: bytes) -> None:
         self.protocol.send_message(data)
 
+    def get_extra_info(self, name, default=None):
+        return self.protocol.transport.get_extra_info(name, default)
+
 
 async def open_udp_connection(host: str, port: int):
     loop = asyncio.get_event_loop()

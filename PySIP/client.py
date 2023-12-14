@@ -97,7 +97,7 @@ class Client:
     async def main(self):
         try:
             await self.connect()
-            await self.register()
+            await self.invite()
 
         except Exception as e:
             print("Error: ", e)
