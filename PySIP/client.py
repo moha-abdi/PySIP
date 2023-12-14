@@ -233,7 +233,7 @@ class Client:
             if not self.my_puplic_ip:
                 self.my_puplic_ip = ip
 
-            new_via = f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+            new_via = f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
             msg = re.sub(r"Via:.*[\r\n]", new_via, msg, flags=re.M)
 
             new_contact = (f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>;" +
@@ -262,7 +262,7 @@ class Client:
             # generated_checksum = self.generate_password(method='REGISTER') # not required at all
 
             msg = (f"REGISTER sip:{self.server} SIP/2.0\r\n"
-                f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(branch_id).upper()};alias\r\n"
+                f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(branch_id).upper()};alias\r\n"
                 f"Route: <sip:{self.server}:{port};transport={self.CTS};lr>\r\n"
                 f"Max-Forwards: 70\r\n"
                 f"From: <sip:{self.username}@{self.server}>;tag={tag}\r\n"
@@ -316,7 +316,7 @@ class Client:
             # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
             msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
-            msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+            msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
             msg += f"Max-Forwards: 70\r\n"
             msg += f"From:sip:{self.username}@{self.server};tag={tag}\r\n"
             msg += f"To: sip:{self.callee}@{self.server}\r\n"
@@ -325,18 +325,18 @@ class Client:
             msg += f"CSeq: {self.register_counter.next()} INVITE\r\n"
             msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
             msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
-            msg += f"Supported: replaces, 100rel, timer, norefersub\r\n"
-            msg += f"Session-Expires: 1800\r\n"
-            msg += f"Min-SE: 90\r\n"
+            # msg += f"Supported: replaces, 100rel, timer, norefersub\r\n"
+            # msg += f"Session-Expires: 1800\r\n"
+            # msg += f"Min-SE: 90\r\n"
             # msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
-            msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
-            msg += f"User-Agent: PySIP-1.2.0\r\n"
+            # msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
+            # msg += f"User-Agent: PySIP-1.2.0\r\n"
             # msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
-            body = SipMessage.generate_sdp(ip)
-            msg += f"Content-Length:   {len(body.encode())}\r\n\r\n"
-            msg += body
+            # body = SipMessage.generate_sdp(ip)
+            msg += f"Content-Length: 0\r\n\r\n"
+            # msg += body
 
             return msg
 
@@ -348,7 +348,7 @@ class Client:
         data_parsed.parse()
 
         msg = f"ACK sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={data_parsed.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
@@ -364,7 +364,7 @@ class Client:
         _, port = self.writer.get_extra_info('sockname')
 
         msg = f"ACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
@@ -380,7 +380,7 @@ class Client:
 
         msg = f"CANCEL sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
         msg += (f"Via: SIP/2.0/{self.CTS} {ip}:{port};" +
-                f"rport;branch={self.invite_details.branch};alias\r\n")
+                f"rport;branch=z9hG4bK{self.invite_details.branch};alias\r\n")
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From:sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server}\r\n"
@@ -396,7 +396,7 @@ class Client:
         _, port = self.writer.get_extra_info('sockname')
 
         msg = f"PRACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
@@ -414,7 +414,7 @@ class Client:
 
         msg = f"BYE sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
         msg += (f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;" +
-                f"branch={str(uuid.uuid4()).upper()};alias\r\n")
+                f"branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n")
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
         msg += f"To:sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
