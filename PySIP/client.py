@@ -299,15 +299,14 @@ class Client:
             msg = re.sub(r"CSeq:.*[\r\n]", new_cseq, msg, flags=re.M)
 
             uri = f'sip:{self.callee}@{self.server}:{self.port};transport={self.CTS}'
-            old_client_timestamp = re.findall(r"Client-Timestamp:.*[\r\n]", msg)
+            old_content_type = re.findall(r"Content-Type:.*[\r\n]", msg)
 
-            new_value = (old_client_timestamp[0] +
-                    (f'Authorization: Digest username="{self.username}",' +
+            new_value = ((f'Authorization: Digest username="{self.username}",' +
                     f'realm="{realm}", nonce="{nonce}", uri="{uri}",'
                     f'response="{self.generate_response("INVITE", nonce, realm, uri)}",'+
-                    f'algorithm="MD5"\r\n'))
+                    f'algorithm="MD5"\r\n') + old_content_type[0])
 
-            msg = msg.replace(old_client_timestamp[0], new_value)
+            msg = msg.replace(old_content_type[0], new_value)
 
             self.invite_details = SipMessage(msg)
             self.invite_details.parse()
