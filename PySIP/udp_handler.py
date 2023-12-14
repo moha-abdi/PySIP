@@ -26,11 +26,10 @@ class UdpHandler(asyncio.DatagramProtocol):
 
     def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
         asyncio.ensure_future(self.data_q.put(data))
-        # print('Received: ', data.decode())
+        print('Received: from server: ', data.decode())
 
     async def read(self):
         return await self.data_q.get()
-
 
 
 class UdpReader:
