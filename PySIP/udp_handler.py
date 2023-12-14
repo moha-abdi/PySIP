@@ -37,7 +37,7 @@ class UdpReader:
         self.protocol = protocol
 
     async def read(self, length: int = -1):
-        await self.protocol.read()
+        return await self.protocol.read()
 
 
 class UdpWriter:
