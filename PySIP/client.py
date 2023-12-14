@@ -167,8 +167,8 @@ class Client:
         """
         return str(uuid.uuid4())
 
-    def generate_response(self, method, nonce, uri):
-        A1_string = (self.username + ":" + self.server + ":" + self.password)
+    def generate_response(self, method, nonce, realm, uri):
+        A1_string = (self.username + ":" + realm + ":" + self.password)
         A1_hash = hashlib.md5(A1_string.encode()).hexdigest()
 
         A2_string = (method + ":" + uri).encode()
@@ -227,6 +227,7 @@ class Client:
             received_message = SipMessage(data)
             received_message.parse()
             nonce = received_message.nonce
+            realm = received_message.realm
             ip = received_message.public_ip
             port = received_message.rport
 
@@ -248,8 +249,9 @@ class Client:
 
             uri = f'sip:{self.server}:{self.port};transport={self.CTS}'
             msg += (f'Authorization: Digest username="{self.username}",' +
-                    f'realm="{self.server}", nonce="{nonce}", uri="{uri}",'
-                    f'response="{self.generate_response("REGISTER", nonce, uri)}"\r\n')
+                    f'realm="{realm}", nonce="{nonce}", uri="{uri}",'
+                    f'response="{self.generate_response("REGISTER", nonce, realm, uri)}",' +
+                    f'algorithm="MD5"\r\n')
             msg += "Content-Length: 0\r\n\r\n"
 
         else:
@@ -289,6 +291,7 @@ class Client:
             received_message = SipMessage(data)
             received_message.parse()
             nonce = received_message.nonce
+            realm = received_message.realm
             ip = received_message.public_ip
             port = received_message.rport
 
@@ -300,8 +303,9 @@ class Client:
 
             new_value = (old_client_timestamp[0] +
                     (f'Authorization: Digest username="{self.username}",' +
-                    f'realm="{self.server}", nonce="{nonce}", uri="{uri}",'
-                    f'response="{self.generate_response("INVITE", nonce, uri)}"\r\n'))
+                    f'realm="{realm}", nonce="{nonce}", uri="{uri}",'
+                    f'response="{self.generate_response("INVITE", nonce, realm, uri)}",'+
+                    f'algorithm="MD5"\r\n'))
 
             msg = msg.replace(old_client_timestamp[0], new_value)
 
