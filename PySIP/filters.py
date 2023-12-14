@@ -386,6 +386,7 @@ class SipMessage:
         self.headers = {}
         self.body = None
         self.nonce = None
+        self.realm = None
         self.data = message
 
         # Initialize properties with default values
@@ -506,6 +507,14 @@ class SipMessage:
     def nonce(self, value):
         self._nonce = value
 
+    @property
+    def realm(self):
+        return self._realm
+
+    @realm.setter
+    def realm(self, value):
+        self._realm = value
+
 
     def parse(self):
         data = self.data.split('\r\n\r\n')
@@ -585,6 +594,7 @@ class SipMessage:
             auth_header = self.get_header('WWW-Authenticate')
             if auth_header:
                 self.nonce = auth_header.split('nonce="')[1].split('"')[0]
+                self.realm = auth_header.split('realm="')[1].split('"')[0]
             # dialog_id
             contact_header = self.get_header("Contact")
             if contact_header:
