@@ -534,6 +534,7 @@ class Client:
         while self.is_running:
             try:
                 data = await asyncio.wait_for(self.reader.read(4000), timeout=4)
+                print("server responed with: ", data)
                 data = data.decode()
 
                 responses = data.split("\r\n\r\n")
