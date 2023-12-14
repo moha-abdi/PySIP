@@ -315,15 +315,15 @@ class Client:
             call_id = self.call_id
             # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
-            msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
-            msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
+            msg = f"INVITE sip:{self.callee}@{self.server} SIP/2.0\r\n"
+            msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()}\r\n"
             msg += f"Max-Forwards: 70\r\n"
-            msg += f"From:sip:{self.username}@{self.server};tag={tag}\r\n"
-            msg += f"To: sip:{self.callee}@{self.server}\r\n"
-            msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
+            msg += f"From: <sip:{self.username}@{self.server}>;tag={tag}\r\n"
+            msg += f"To: <sip:{self.callee}@{self.server}>\r\n"
+            msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS}>\r\n"
             msg += f"Call-ID: {call_id}\r\n"
             msg += f"CSeq: {self.register_counter.next()} INVITE\r\n"
-            msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
+            # msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
             msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
             # msg += f"Supported: replaces, 100rel, timer, norefersub\r\n"
             # msg += f"Session-Expires: 1800\r\n"
