@@ -236,6 +236,9 @@ class VOIP:
                 await self.client.send(ack)
                 _print_debug_info("INVITED...")
                 print("CALL HAS BEEN ANSWERED..")
+                if message.body:
+                    self.flag = True
+                    self.last_body = message.body
 
             if self.status == CallStatus.REINVITING and message.status != \
             SIPStatus.TRYING and message.type == SIPMessageType.RESPONSE:
