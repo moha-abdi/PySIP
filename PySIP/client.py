@@ -12,6 +12,7 @@ import base64
 import configparser
 from typing import Dict, Literal
 import warnings
+import traceback
 
 import requests
 from .filters import SipFilter, SipMessage, SIPMessageType, SIPCompatibleMethods, SIPStatus, ConnectionType
@@ -100,11 +101,11 @@ class Client:
             await self.register()
 
         except Exception as e:
-            print("Error: ", e.with_traceback())
-            return
+            print("Error: ", e)
+            traceback.print_exc()
 
         finally:
-            print("Main-loop completed. with no errors.")
+            print("Main-loop completed.")
             return
 
     def generate_password(self, method=None):
@@ -250,8 +251,8 @@ class Client:
             uri = f'sip:{self.server}:{self.port};transport={self.CTS}'
             msg += (f'Authorization: Digest username="{self.username}",' +
                     f'realm="{realm}", nonce="{nonce}", uri="{uri}",'
-                    f'response="{self.generate_response("REGISTER", nonce, realm, uri)}",' +
-                    f'algorithm="MD5"\r\n')
+                    f'response="{self.generate_response("REGISTER", nonce, realm, uri)}"' +
+                    f'\r\n')
             msg += "Content-Length: 0\r\n\r\n"
 
         else:
@@ -303,8 +304,8 @@ class Client:
 
             new_value = ((f'Authorization: Digest username="{self.username}",' +
                     f'realm="{realm}", nonce="{nonce}", uri="{uri}",'
-                    f'response="{self.generate_response("INVITE", nonce, realm, uri)}",'+
-                    f'algorithm="MD5"\r\n') + old_content_type[0])
+                    f'response="{self.generate_response("INVITE", nonce, realm, uri)}"'+
+                    f'\r\n') + old_content_type[0])
 
             msg = msg.replace(old_content_type[0], new_value)
 

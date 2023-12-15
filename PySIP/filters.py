@@ -695,12 +695,15 @@ class SDPParser:
             elif 'ptime' in attr:
                 self.ptime = int(attr.split(':')[1])
             elif 'rtpmap' in attr:
-                if self.rtpmap:
+                try:
+                    rtpmap_val = attr.split(' ')
+                    payload_type = int(rtpmap_val[0].split(':')[1])
+                    codec = PayloadType(payload_type)
+                    self.rtpmap[payload_type] = codec
+
+                except ValueError:
                     continue
-                rtpmap_val = attr.split(' ')
-                payload_type = int(rtpmap_val[0].split(':')[1])
-                codec = PayloadType(payload_type)
-                self.rtpmap[payload_type] = codec
+
             elif 'sendrecv' in attr:
                 self.direction = attr
 
@@ -806,5 +809,5 @@ class PayloadType(Enum):
     H263 = 34, 90000, 0, "H263"
 
     # Non-codec
-    EVENT = "telephone-event", 8000, 0, "telephone-event"
+    EVENT = 121, 8000, 0, "telephone-event"
     UNKNOWN = "UNKNOWN", 0, 0, "UNKNOWN CODEC"

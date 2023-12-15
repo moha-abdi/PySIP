@@ -25,6 +25,11 @@ __all__ = [
     "TransmitType",
 ]
 
+SUPPORTED_CODEC = [
+    PayloadType.PCMU,
+    PayloadType.PCMA
+]
+
 RTPCompatibleVersions = [2]
 TRANSMIT_DELAY_REDUCTION = 0.75
 
@@ -49,6 +54,11 @@ class DynamicPayloadType(Exception):
 
 class RTPParseError(Exception):
     pass
+
+
+class NoSupportedCodecsFound(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
 
 
 class RTPProtocol(Enum):
@@ -217,10 +227,13 @@ class RTPClient:
         self.NSD = True
         # Example: {0: PayloadType.PCMU, 101: PayloadType.EVENT}
         self.assoc = assoc
+        self.preference = None
         _print_debug_info("Selecting audio codec for transmission")
         for m in assoc:
             try:
                 if int(assoc[m]) is not None:
+                    if assoc[m] not in SUPPORTED_CODEC:
+                        continue
                     _print_debug_info(f"Selected {assoc[m]}")
                     """
                     Select the first available actual codec to encode with.
@@ -231,6 +244,9 @@ class RTPClient:
                     break
             except Exception:
                 _print_debug_info(f"{assoc[m]} cannot be selected as an audio codec")
+
+        if not self.preference:
+            raise NoSupportedCodecsFound("No supported codecs found closing...")
 
         self.inIP = inIP
         self.inPort = inPort
