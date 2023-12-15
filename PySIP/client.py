@@ -100,7 +100,7 @@ class Client:
             await self.register()
 
         except Exception as e:
-            print("Error: ", e)
+            print("Error: ", e.with_traceback())
             return
 
         finally:
