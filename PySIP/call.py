@@ -225,7 +225,7 @@ class VOIP:
                     self.status = CallStatus.REINVITING
                     _print_debug_info("RE-INVITING...")
                 else:
-                    self.status = CallStatus.REGISTERING
+                    self.status = CallStatus.INVITING
                     _print_debug_info("INVITING...")
 
             elif message.status == SIPStatus.OK:
@@ -236,9 +236,6 @@ class VOIP:
                 await self.client.send(ack)
                 _print_debug_info("INVITED...")
                 print("CALL HAS BEEN ANSWERED..")
-                if message.body:
-                    self.flag = True
-                    self.last_body = message.body
 
             if self.status == CallStatus.REINVITING and message.status != \
             SIPStatus.TRYING and message.type == SIPMessageType.RESPONSE:
