@@ -10,12 +10,12 @@ import hashlib
 import hmac
 import base64
 import configparser
-from typing import Dict, Literal
+from typing import Callable, Dict, Literal
 import warnings
 import traceback
 
 import requests
-from .filters import SipFilter, SipMessage, SIPMessageType, SIPCompatibleMethods, SIPStatus, ConnectionType
+from .filters import SipFilter, SipMessage, SIPMessageType, SIPCompatibleMethods, SIPStatus, ConnectionType, CallState
 from . import _print_debug_info
 from .udp_handler import open_udp_connection
 
@@ -76,6 +76,7 @@ class Client:
             self.password = self.generate_password()
 
         self.is_running = False
+        self.call_state: Callable[[], CallState] = None
         self.CTS = 'TLS' if 'TLS' in connection_type else connection_type
         self.connection_type = ConnectionType(connection_type)
         self.token = token
@@ -562,7 +563,7 @@ class Client:
                 _print_debug_info("Timeout occured on invite, will try ot resend.")
 
     async def hangup(self, rtp_session = None):
-        if not self.dialog_id:
+        if not self.call_state() is CallState.ANSWERED:
             warnings.warn('WARNING! There is no call in-progress trying to cancel instead..')
 
         await self.cancel()
@@ -580,7 +581,7 @@ class Client:
             await self.cleanup()
             return
 
-        if self.dialog_id:
+        if self.call_state() is CallState.ANSWERED:
             msg = self.bye_generator()
         else:
             msg = self.cancel_generator()
