@@ -103,6 +103,7 @@ class Client:
         except Exception as e:
             print("Error: ", e)
             traceback.print_exc()
+            return
 
         finally:
             print("Main-loop completed.")
