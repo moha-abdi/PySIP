@@ -260,9 +260,10 @@ class VOIP:
 
         sdp = SipMessage.parse_sdp(body)
         self.dtmf_handler = DTMFHandler()
+        loop = asyncio.get_event_loop()
         rtp_session = RTPClient(sdp.rtpmap, self.client.my_private_ip, 64417,
                                     sdp.ip_address, sdp.port, TransmitType.SENDRECV,
-                                    self.dtmf_handler.dtmf_callback)
+                                    loop, self.dtmf_handler.dtmf_callback)
         self.rtp_session = rtp_session
         rtp_session.start()
         asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
