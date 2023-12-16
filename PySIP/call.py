@@ -7,7 +7,7 @@ from .CustomCommuicate import CommWithPauses, NoPausesFound
 from pydub import AudioSegment
 import os
 
-from .filters import SIPMessageType, SIPStatus, SipMessage, ConnectionType
+from .filters import SIPMessageType, SIPStatus, SipMessage, ConnectionType, CallState
 from .client import Client, SipFilter
 from enum import Enum
 from .rtp import PayloadType, RTPClient, TransmitType
@@ -20,13 +20,6 @@ __all__ = [
     'TTS'
 ]
 
-class CallState(Enum):
-    DAILING = "DIALING"
-    RINGING = "RINGING"
-    ANSWERED = "ANSWERED"
-    ENDED = "ENDED"
-    FAILED = "FAILED"
-
 class CallStatus(Enum):
     REGISTERING = "REGISTERING"
     REREGISTERING = "REREGISTERING"
@@ -36,6 +29,7 @@ class CallStatus(Enum):
     INVITED = "INVITED"
     FAILED = "FAILED"
     INACTIVE = "INACTIVE"
+
 
 class VOIP:
     """
@@ -96,6 +90,7 @@ class VOIP:
             self.device_id,
             self.token
         )
+        self.client.call_state = lambda: self.call_state
         self.on_message()
 
     async def call(self, callee: str | int, audio_file: str = None, tts: bool = False,
@@ -176,7 +171,7 @@ class VOIP:
                 return
 
             if message.method in ['PRACK', 'ACK']:
-                    return
+                return
 
             if str(message.status).startswith('4') and message.status != SIPStatus.UNAUTHORIZED:
                 """

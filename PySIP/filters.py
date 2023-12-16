@@ -45,6 +45,14 @@ class ConnectionType(Enum):
         return obj
 
 
+class CallState(Enum):
+    DAILING = "DIALING"
+    RINGING = "RINGING"
+    ANSWERED = "ANSWERED"
+    ENDED = "ENDED"
+    FAILED = "FAILED"
+
+    
 class Filter:
     def __init__(self):
         self.conditions = [self]
