@@ -1,3 +1,4 @@
+import asyncio
 from enum import Enum
 from threading import Timer
 from typing import Callable, Dict, Optional, Union
@@ -574,4 +575,5 @@ class RTPClient:
         if packet.marker:
             _print_debug_info(event)
             if self.dtmf is not None:
-                self.dtmf(event)
+                loop = asyncio.get_event_loop()
+                loop.create_task(self.dtmf(event))

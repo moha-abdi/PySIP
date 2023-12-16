@@ -85,6 +85,7 @@ class VOIP:
         self.last_error = None
         self.received_bytes = False
         self.last_body = None
+        self.dtmf_handler: DTMFHandler = None
 
         self.client = Client(
             self.username,
@@ -98,7 +99,7 @@ class VOIP:
         self.on_message()
 
     async def call(self, callee: str | int, audio_file: str = None, tts: bool = False,
-        text: str = None, language: str = 'so-SO-UbaxNeural'):
+        text: str = None, language: str = 'en-US-AriaNeural'):
         """
         Initiate a call with the provided number.
 
@@ -258,11 +259,18 @@ class VOIP:
             body = message.body
 
         sdp = SipMessage.parse_sdp(body)
+        self.dtmf_handler = DTMFHandler()
         rtp_session = RTPClient(sdp.rtpmap, self.client.my_private_ip, 64417,
-                                    sdp.ip_address, sdp.port, TransmitType.SENDRECV)
+                                    sdp.ip_address, sdp.port, TransmitType.SENDRECV,
+                                    self.dtmf_handler.dtmf_callback)
         self.rtp_session = rtp_session
         rtp_session.start()
         asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
+        asyncio.create_task(self.dtmf_test(length=4), name='pysip_4')
+
+    async def dtmf_test(self, length=1):
+        result = await self.dtmf_handler.get_dtmf(length)
+        print("DTMF test passed, received: ", result)
 
     async def audio_writer(self, session: RTPClient):
         while self.call_state != CallState.ANSWERED:
@@ -360,6 +368,21 @@ class TTS:
     def cleanup(self):
         os.remove(self.output_filename)
 
+
+class DTMFHandler:
+    def __init__(self) -> None:
+        self.dtmf_queue = asyncio.Queue()
+
+    async def dtmf_callback(self, code: str) -> None:
+        await self.dtmf_queue.put(code)
+
+    async def get_dtmf(self, length=1) -> str:
+        dtmf_codes = []
+        for _ in range(length):
+            code = await self.dtmf_queue.get()
+            dtmf_codes.append(code)
+
+        return ''.join(dtmf_codes)
 
 
 
