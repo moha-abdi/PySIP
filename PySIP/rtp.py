@@ -223,6 +223,7 @@ class RTPClient:
         outIP: str,
         outPort: int,
         sendrecv: TransmitType,
+        loop: asyncio.AbstractEventLoop,
         dtmf: Optional[Callable[[str], None]] = None,
     ):
         self.NSD = True
@@ -255,6 +256,7 @@ class RTPClient:
         self.outPort = outPort
 
         self.dtmf = dtmf
+        self.loop = loop
 
         self.pmout = RTPPacketManager()  # To Send
         self.pmin = RTPPacketManager()  # Received
@@ -575,5 +577,4 @@ class RTPClient:
         if packet.marker:
             _print_debug_info(event)
             if self.dtmf is not None:
-                loop = asyncio.get_event_loop()
-                loop.create_task(self.dtmf(event))
+                self.loop.create_task(self.dtmf(event))
