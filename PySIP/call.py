@@ -131,9 +131,21 @@ class VOIP:
         signal.signal(signal.SIGINT, self.signal_handler)
 
         if asyncio.get_event_loop().is_running():
-            await asyncio.create_task(self.client.main(), name='pysip_1')
+            try:
+                await asyncio.create_task(self.client.main(), name='pysip_1')
+            finally:
+                await asyncio.sleep(0.2)
+                await self.client.cleanup()
+                print("Main-loop completed.")
+                
         else:
-            asyncio.run(self.client.main())
+            try:
+                asyncio.run(self.client.main())
+            finally:
+                await asyncio.sleep(0.2)
+                await self.client.cleanup()
+                print("Main-loop completed.")
+
 
     def on_message(self):
         @self.client.on_message()
@@ -158,12 +170,12 @@ class VOIP:
                 await self.client.send(prack)
                 await self.make_call(msg)
 
-            elif msg.get_header('Reason'):
+            elif msg.data.startswith("BYE") and msg.get_header("From").__contains__(str(self.callee)):
                 print('Callee hanged-up')
                 self.last_error = "Callee hanged-up"
                 if self.rtp_session:
                     self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer)
-                await self.client.hangup(self.rtp_session)
+                await self.client.hangup(self.rtp_session, callee_hanged_up=True, data_parsed=msg)
 
         @self.client.on_message(filters=SipFilter.RESPONSE)
         async def error_handler(message: SipMessage):
@@ -219,6 +231,7 @@ class VOIP:
             if message.type == SIPMessageType.MESSAGE:
                 if message.get_header("Authorization"):
                     self.status = CallStatus.REINVITING
+                    self.client.on_call_tags['branch'] = message.branch
                     _print_debug_info("RE-INVITING...")
                 else:
                     self.status = CallStatus.INVITING
@@ -239,6 +252,8 @@ class VOIP:
                 # responses that are not :attr:`SIPSatatus.trying` which
                 # can help us handle the events that occur after we send
                 # the re-invite with authoriation
+                if message.status is SIPStatus.UNAUTHORIZED:
+                    raise UserWarning("Unexpected response recived from the server. 401 UNAUTHORIZED")
                 _print_debug_info("This event occured: ", message.status)
                 self.flag = True
                 if message.body: # Pre-set the body in-case the serve doesn't send body everytime
@@ -253,7 +268,12 @@ class VOIP:
         if message.body:
             body = message.body
 
-        sdp = SipMessage.parse_sdp(body)
+        try:
+            sdp = SipMessage.parse_sdp(body)
+        except Exception:
+            print("Could not parse the provided SDP.. Closing...")
+            return
+
         self.dtmf_handler = DTMFHandler()
         loop = asyncio.get_event_loop()
         rtp_session = RTPClient(sdp.rtpmap, self.client.my_private_ip, 64417,
@@ -262,7 +282,7 @@ class VOIP:
         self.rtp_session = rtp_session
         rtp_session.start()
         asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
-        asyncio.create_task(self.dtmf_test(length=4), name='pysip_4')
+        asyncio.create_task(self.dtmf_test(length=4), name='pysip_5')
 
     async def dtmf_test(self, length=1):
         result = await self.dtmf_handler.get_dtmf(length)
