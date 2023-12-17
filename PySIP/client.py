@@ -93,8 +93,8 @@ class Client:
         self.urn_UUID = self.gen_urn_uuid()
         self.invite_details: SipMessage = None
         self.dialog_id = None
-        self.on_call_tags: Dict[Literal["From", "To", "CSeq", "RSeq"], str] = \
-                            {"From": None, "To": None, "CSeq": None, "RSeq": None}
+        self.on_call_tags: Dict[Literal["From", "To", "CSeq", "RSeq", "branch"], str] = \
+                            {"From": None, "To": None, "CSeq": None, "RSeq": None, "branch": None}
 
     async def main(self):
         try:
@@ -107,7 +107,6 @@ class Client:
             return
 
         finally:
-            print("Main-loop completed.")
             return
 
     def generate_password(self, method=None):
@@ -212,6 +211,7 @@ class Client:
                 self.is_running = True
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
                 ssl_context.set_ciphers("AES128-SHA")
+                ssl_context.keylog_filename = 'premaster.txt'
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server,
                     self.port,
@@ -370,7 +370,7 @@ class Client:
         _, port = self.writer.get_extra_info('sockname')
 
         msg = f"ACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={self.on_call_tags['branch']};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
@@ -418,14 +418,31 @@ class Client:
         peer_ip, peer_port = self.writer.get_extra_info("peername")
         _, port = self.writer.get_extra_info('sockname')
 
-        msg = f"BYE sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
+        msg = f"BYE sip:{self.callee}@{peer_ip}:{peer_port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
         msg += (f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;" +
                 f"branch={str(uuid.uuid4()).upper()};alias\r\n")
-        msg += f"Max-Forwards: 70\r\n"
+        msg += 'Reason: Q.850;cause=16;text="normal call clearing"'
+        msg += f"Max-Forwards: 64\r\n"
         msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
         msg += f"To:sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.register_counter.next()} BYE\r\n"
+        msg += f"Content-Length:  0\r\n\r\n"
+
+        return msg
+
+    def ok_generator(self, data_parsed: SipMessage):
+        peer_ip, peer_port = self.writer.get_extra_info("peername")
+        _, port = self.writer.get_extra_info('sockname')
+
+        msg = f"SIP/2.0 200 OK\r\n"
+        msg += (f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;" +
+                f"branch={data_parsed.branch};alias\r\n")
+        msg += f"Max-Forwards: 70\r\n"
+        msg += f"From: sip:{self.username}@{self.server};tag={data_parsed.from_tag}\r\n"
+        msg += f"To:sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
+        msg += f"Call-ID: {self.call_id}\r\n"
+        msg += f"CSeq: {data_parsed.cseq} BYE\r\n"
         msg += f"Content-Length:  0\r\n\r\n"
 
         return msg
@@ -517,9 +534,7 @@ class Client:
 
     async def reinvite(self, auth, msg, data):
         reinvite_msg = self.build_invite_message(auth, msg, data)
-        ack_msg = self.ack_generator(data)
 
-        await self.send(ack_msg)
         await self.send(reinvite_msg)
         while self.is_running:
             try:
@@ -562,16 +577,16 @@ class Client:
             except asyncio.TimeoutError:
                 _print_debug_info("Timeout occured on invite, will try ot resend.")
 
-    async def hangup(self, rtp_session = None):
+    async def hangup(self, rtp_session = None, callee_hanged_up = False, data_parsed = None):
         if not self.call_state() is CallState.ANSWERED:
             warnings.warn('WARNING! There is no call in-progress trying to cancel instead..')
 
-        await self.cancel()
+        await self.cancel(callee_hanged_up, data_parsed)
         if rtp_session:
             rtp_session.stop()
         await asyncio.sleep(0.2)
 
-    async def cancel(self):
+    async def cancel(self, callee_hanged_up, data_parsed):
         if not self.invite_details:
             warnings.warn('WARNING! There is no invite request to cancel')
             await asyncio.sleep(0.1)
@@ -582,16 +597,17 @@ class Client:
             return
 
         if self.call_state() is CallState.ANSWERED:
-            msg = self.bye_generator()
+            if callee_hanged_up:
+                msg = self.ok_generator(data_parsed=data_parsed)
+            else:
+                msg = self.bye_generator()
         else:
             msg = self.cancel_generator()
 
         await self.send(msg)
         await asyncio.sleep(0.1)
         self.is_running = False
-        await asyncio.sleep(0.2)
 
-        await self.cleanup()
 
     async def cleanup(self):
 
@@ -599,11 +615,10 @@ class Client:
         for task in asyncio.all_tasks():
             if task.get_name() == 'pysip_4' and task._state == 'PENDING':
                 cancel_all = True
-                print("Cancelling all tasks...")
                 break
 
         if cancel_all:
-            [task.cancel() for task in asyncio.all_tasks()]
+            [task.cancel() for task in asyncio.all_tasks() if task != asyncio.current_task()]
 
         else:
             [task.cancel() for task in asyncio.all_tasks()
