@@ -5,6 +5,7 @@ secrets.ini
 *.flac
 *.txt
 *.log
+premaster.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
