@@ -11,6 +11,8 @@ import threading
 import time
 import warnings
 from pydub import AudioSegment
+
+from PySIP.call_handler import AudioStream
 from . import _print_debug_info
 from .filters import PayloadType
 
@@ -348,13 +350,12 @@ class RTPClient:
             except OSError:
                 pass
 
-    def send_from_source(self, source):
-        file = wave.open(source, 'rb')
+    def send_from_source(self, source: AudioStream):
         _print_debug_info("started to send from src: ", source)
 
         try:
             while True:
-                payload = file.readframes(160)
+                payload = source.read_frames(160)
                 if not payload:
                     _print_debug_info("Sent all frames.")
                     break
@@ -414,7 +415,8 @@ class RTPClient:
 
             try:
                 self.sout.sendto(packet, (self.outIP, self.outPort))
-            except OSError:
+            except OSError as e:
+                print("THis oserror occured: ", e)
                 warnings.warn(
                     "RTP Packet failed to send!",
                     RuntimeWarning,
