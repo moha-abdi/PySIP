@@ -109,11 +109,12 @@ class Client:
         finally:
             return
 
-    def generate_password(self, method=None):
+    def generate_password(self, method=None, username=None):
         if method:
             timestamp = str(int(time.time() * 1000))
             salt = self.gather_salts("salt_2").encode()
-            message = (method + self.username + "@" + self.server + timestamp).encode()
+            user = self.username if not username else username
+            message = (method + user + "@" + self.server + timestamp).encode()
 
             message_hash = hmac.new(salt, message, hashlib.sha512).digest()
             hashb64 = base64.b64encode(message_hash).decode()
