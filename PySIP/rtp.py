@@ -351,13 +351,14 @@ class RTPClient:
                 pass
 
     def send_from_source(self, source: AudioStream):
-        _print_debug_info("started to send from src: ", source)
+        _print_debug_info("started to send from src with id: ", source)
 
         try:
             while True:
-                payload = source.read_frames(160)
+                payload = source.readframes(160)
                 if not payload:
                     _print_debug_info("Sent all frames.")
+                    source.audio_sent_future.set_result("Done")
                     break
 
                 payload = audioop.lin2lin(payload, 2, 1)

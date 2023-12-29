@@ -31,6 +31,8 @@ class CommWithPauses(Communicate):
         self.max_pause = max_pause * 1000
         self.parsed = self.parse_text()
         self.file = io.BytesIO()
+        self.target_channels = 1
+        self.target_framerate = 8000
 
     def parse_text(self):
         if not "[pause:" in self.text:
@@ -83,17 +85,22 @@ class CommWithPauses(Communicate):
                 self.file.write(pause_bytes)
                 self.file.write(audio_bytes)
 
-    def generate_pause(self, time: int) -> bytes:
+    def generate_pause(self, time: int) -> io.BytesIO:
         """
         pause time should be provided in ms
         """
+        temp_file = io.BytesIO()
         silent: AudioSegment = AudioSegment.silent(time, 24000)
-        return silent.raw_data
+        silent.set_channels(self.target_channels)
+        silent.set_frame_rate(self.target_framerate)
+        silent.export(temp_file, format='wav')
+        return temp_file
 
-    async def generate_audio(self, text: str) -> bytes:
+    async def generate_audio(self, text: str) -> io.BytesIO:
         """
         this genertes the real TTS using edge_tts for this part.
         """
+        temp_file = io.BytesIO()
         temp_chunk = io.BytesIO()
         self.text = text
         async for chunk in self.stream():
@@ -101,8 +108,12 @@ class CommWithPauses(Communicate):
                 temp_chunk.write(chunk['data'])
 
         temp_chunk.seek(0)
-        decoded_chunk = AudioSegment.from_mp3(temp_chunk)
-        return decoded_chunk.raw_data
+        decoded_chunk: AudioSegment = AudioSegment.from_mp3(temp_chunk)
+        decoded_chunk = decoded_chunk.set_channels(self.target_channels)
+        decoded_chunk = decoded_chunk.set_frame_rate(self.target_framerate)
+        
+        decoded_chunk.export(temp_file, format='wav')
+        return temp_file
 
     async def save(
         self,
