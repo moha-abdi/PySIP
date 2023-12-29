@@ -267,6 +267,7 @@ class VOIP:
         body = self.last_body
         if message.body:
             body = message.body
+        print(body)
 
         try:
             sdp = SipMessage.parse_sdp(body)
@@ -281,6 +282,7 @@ class VOIP:
                                     loop, self.dtmf_handler.dtmf_callback)
         self.rtp_session = rtp_session
         rtp_session.start()
+        _print_debug_info("RTP session now started")
         # asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
         # asyncio.create_task(self.dtmf_test(length=4), name='pysip_5')
 

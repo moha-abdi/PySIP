@@ -608,6 +608,7 @@ class Client:
         await self.send(msg)
         await asyncio.sleep(0.1)
         self.is_running = False
+        _print_debug_info("Client stopped")
 
 
     async def cleanup(self):
