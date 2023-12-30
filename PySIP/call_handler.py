@@ -40,7 +40,7 @@ class CallHandler:
     def gather_and_say(self, text: str, length: int = 1):
         """This method waits for dtmf keys and then if received
         it instantly send it"""
-        pass
+        raise NotImplementedError
 
     async def hangup(self):
         if self.call.rtp_session:
@@ -71,19 +71,36 @@ class CallHandler:
                     event_type, result = await asyncio.wait_for(
                         self.audio_queue.get(), timeout=1.0
                     )
+                    # _print_debug_info(f"Q is got, type {event_type}")
                     empty_queue_count = 0  # Reset the counter if an item is retrieved
 
                     if event_type == "audio":
-                        self.call.rtp_session.send_from_source(result)
+                        if self.previous_stream:
+                            await self.previous_stream.flush()
+
+                        asyncio.get_event_loop().run_in_executor(
+                            None, self.call.rtp_session.send_from_source, result
+                        )
+
+                        self.previous_stream = result
 
                     elif event_type == "dtmf":
                         try:
                             length = result.length
                             timeout = result.timeout
+                            if self.previous_stream:
+                                asyncio.create_task(
+                                    self.call.dtmf_handler.started_typing(
+                                        lambda: self.previous_stream.flush()
+                                    )
+                                )
+                            _print_debug_info("Started to wait for DTMF")
+
                             dtmf_result = await asyncio.wait_for(
                                 self.call.dtmf_handler.get_dtmf(length), timeout
                             )
                             result.set_result(dtmf_result)
+                            self.previous_stream = None
 
                         except asyncio.TimeoutError:
                             result.set_exception(asyncio.TimeoutError)

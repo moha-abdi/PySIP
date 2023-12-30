@@ -61,9 +61,10 @@ class Client:
 
     def __init__(
         self, username, server, callee, connection_type: str,
-        password=None, device_id=None, token=None
+        from_tag=None, password=None, device_id=None, token=None
     ):
         self.username = username
+        self.from_tag = from_tag if from_tag else username
         self.server = server.split(":")[0]
         self.port = server.split(":")[1]
         self.callee = callee
@@ -271,7 +272,7 @@ class Client:
                 f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(branch_id).upper()};alias\r\n"
                 f"Route: <sip:{self.server}:{port};transport={self.CTS};lr>\r\n"
                 f"Max-Forwards: 70\r\n"
-                f"From: <sip:{self.username}@{self.server}>;tag={tag}\r\n"
+                f"From: <sip:{self.from_tag}@{self.server}>;tag={tag}\r\n"
                 f"To: <sip:{self.username}@{self.server}>\r\n"
                 f"Call-ID: {call_id}\r\n"
                 f"CSeq: {self.register_counter.next()} REGISTER\r\n"
@@ -325,7 +326,7 @@ class Client:
             msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
             msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
             msg += f"Max-Forwards: 70\r\n"
-            msg += f"From:sip:{self.username}@{self.server};tag={tag}\r\n"
+            msg += f"From:sip:{self.from_tag}@{self.server};tag={tag}\r\n"
             msg += f"To: sip:{self.callee}@{self.server}\r\n"
             msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
             msg += f"Call-ID: {call_id}\r\n"
@@ -357,7 +358,7 @@ class Client:
         msg = f"ACK sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
         msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={data_parsed.from_tag}\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={data_parsed.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
         msg += f"Call-ID: {data_parsed.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} ACK\r\n"
@@ -373,7 +374,7 @@ class Client:
         msg = f"ACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
         msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={self.on_call_tags['branch']};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.invite_details.cseq} ACK\r\n"
@@ -389,7 +390,7 @@ class Client:
         msg += (f"Via: SIP/2.0/{self.CTS} {ip}:{port};" +
                 f"rport;branch={self.invite_details.branch};alias\r\n")
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From:sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
+        msg += f"From:sip:{self.from_tag}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server}\r\n"
         msg += f"Call-ID: {self.invite_details.call_id}\r\n"
         msg += f"CSeq: {self.invite_details.cseq} CANCEL\r\n"
@@ -405,7 +406,7 @@ class Client:
         msg = f"PRACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
         msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={self.on_call_tags['From']}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.register_counter.next()} PRACK\r\n"
@@ -424,7 +425,7 @@ class Client:
                 f"branch={str(uuid.uuid4()).upper()};alias\r\n")
         msg += 'Reason: Q.850;cause=16;text="normal call clearing"'
         msg += f"Max-Forwards: 64\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={self.on_call_tags['From']}\r\n"
         msg += f"To:sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.register_counter.next()} BYE\r\n"
@@ -440,7 +441,7 @@ class Client:
         msg += (f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;" +
                 f"branch={data_parsed.branch};alias\r\n")
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={data_parsed.from_tag}\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={data_parsed.from_tag}\r\n"
         msg += f"To:sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} BYE\r\n"

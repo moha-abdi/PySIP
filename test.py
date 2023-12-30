@@ -58,8 +58,5 @@ async def main():
     if voip.received_bytes:
         print("Recorded audio saved to recored.mp3")
 
-    await asyncio.sleep(1)
-    print("after sleep")
-
 
 asyncio.run(main())

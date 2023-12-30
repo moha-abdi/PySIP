@@ -58,12 +58,14 @@ class VOIP:
         route: str,
         *,
         connection_type: Literal['TCP', 'UDP', 'TLS', 'TLSv1'] = 'TCP',
+        from_tag: str = None,
         password: str=None,
         device_id: str =None,
         token: str =None
     ) -> None:
 
         self.username = username
+        self.from_tag = from_tag
         self.route = route
         self.server = route.split(":")[0]
         self.port = int(route.split(":")[1])
@@ -86,6 +88,7 @@ class VOIP:
             self.route,
             self.callee,
             self.connection_type,
+            self.from_tag,
             self.password,
             self.device_id,
             self.token
@@ -267,7 +270,6 @@ class VOIP:
         body = self.last_body
         if message.body:
             body = message.body
-        print(body)
 
         try:
             sdp = SipMessage.parse_sdp(body)
@@ -390,16 +392,24 @@ class TTS:
 class DTMFHandler:
     def __init__(self) -> None:
         self.dtmf_queue = asyncio.Queue()
+        self.started_typing_event = asyncio.Event()
 
     async def dtmf_callback(self, code: str) -> None:
         await self.dtmf_queue.put(code)
+
+    async def started_typing(self, event):
+        await self.started_typing_event.wait()
+        await event()
 
     async def get_dtmf(self, length=1) -> str:
         dtmf_codes = []
         for _ in range(length):
             code = await self.dtmf_queue.get()
             dtmf_codes.append(code)
+            if not self.started_typing_event.is_set():
+                self.started_typing_event.set()
 
+        self.started_typing_event.clear()
         return ''.join(dtmf_codes)
 
 
