@@ -355,6 +355,12 @@ class RTPClient:
 
         try:
             while True:
+                time.sleep(0.01) # allow the main context to update the Event
+                if source.should_stop_streaming.is_set():
+                    _print_debug_info("Sent partial frames. [DRAINED]")
+                    source.audio_sent_future.set_result("Done")
+                    break
+
                 payload = source.readframes(160)
                 if not payload:
                     _print_debug_info("Sent all frames.")
@@ -391,7 +397,7 @@ class RTPClient:
                 pass
 
         finally:
-            pass
+            source.close()
 
 
     def trans(self) -> None:
