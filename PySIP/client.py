@@ -114,7 +114,7 @@ class Client:
         if method:
             timestamp = str(int(time.time() * 1000))
             salt = self.gather_salts("salt_2").encode()
-            user = self.username if not username else username
+            user = self.from_tag if not username else username
             message = (method + user + "@" + self.server + timestamp).encode()
 
             message_hash = hmac.new(salt, message, hashlib.sha512).digest()

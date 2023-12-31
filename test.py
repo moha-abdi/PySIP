@@ -20,7 +20,7 @@ async def call_flow() -> None:
     dtmf_result_found = False
     for _ in range(3):
         try:
-            dtmf_result = await call_handler.gather(length=2, timeout=5.0)
+            dtmf_result = await call_handler.gather(length=2, timeout=8.0)
 
             if dtmf_result == 55:
                 await call_handler.say("Thank you your code is correct, good bye")
@@ -41,14 +41,21 @@ async def call_flow() -> None:
     await stream_id.flush()  # This is only required on the last message and its important beause it makes sure to wait for the last message to be sent before hanging up, otherwise we would not hear the last messahe
     await call_handler.hangup()
 
-
+async def call_flow_new():
+    stream_id = await call_handler.say("This long statements will stop if you presss 1. Please try it and press one. When you press one it stops")
+    await call_handler.sleep(2)
+    await stream_id.drain()
+    stream_id = await call_handler.say("You see that was easy to stop")
+    await stream_id.flush()
+    await call_handler.hangup()
+    
 async def main():
     # Run the voip.call asynchronously
-    call_task = asyncio.create_task(voip.call("13209876534"))
+    call_task = asyncio.create_task(voip.call("13208765690"))
 
     # Concurrently run other tasks
     other_tasks = [
-        asyncio.create_task(call_flow()),
+        asyncio.create_task(call_flow_new()),
         asyncio.create_task(call_handler.send_handler()),
     ]
 

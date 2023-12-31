@@ -401,13 +401,24 @@ class DTMFHandler:
         await self.started_typing_event.wait()
         await event()
 
-    async def get_dtmf(self, length=1) -> str:
+    async def get_dtmf(self, length=1, end_type="length") -> str:
         dtmf_codes = []
-        for _ in range(length):
-            code = await self.dtmf_queue.get()
-            dtmf_codes.append(code)
-            if not self.started_typing_event.is_set():
-                self.started_typing_event.set()
+
+        if end_type == "#":
+            while True:
+                code = await self.dtmf_queue.get()
+                if code == "#":
+                    break
+                dtmf_codes.append(code)
+                if not self.started_typing_event.is_set():
+                    self.started_typing_event.set()
+
+        else:
+            for _ in range(length):
+                code = await self.dtmf_queue.get()
+                dtmf_codes.append(code)
+                if not self.started_typing_event.is_set():
+                    self.started_typing_event.set()
 
         self.started_typing_event.clear()
         return ''.join(dtmf_codes)
