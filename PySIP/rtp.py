@@ -355,13 +355,16 @@ class RTPClient:
             while True:
                 if source.should_stop_streaming.is_set():
                     _print_debug_info("Sent partial frames. [DRAINED]")
-                    source.audio_sent_future.set_result("Done")
+                    if not source.audio_sent_future.done():
+                        self.loop.call_soon_threadsafe(source.audio_sent_future.set_result, "Done")
+
                     break
 
                 payload = source.readframes(160)
                 if not payload:
                     _print_debug_info("Sent all frames.")
-                    source.audio_sent_future.set_result("Done")
+                    if not source.audio_sent_future.done():
+                        self.loop.call_soon_threadsafe(source.audio_sent_future.set_result, "Done")
                     break
 
                 payload = audioop.lin2lin(payload, 2, 1)
@@ -583,5 +586,5 @@ class RTPClient:
         if packet.marker:
             _print_debug_info(event)
             if self.dtmf is not None:
-                t = self.loop.create_task(self.dtmf(event))
+                self.dtmf(event)
 

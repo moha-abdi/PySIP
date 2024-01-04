@@ -1,4 +1,5 @@
 import asyncio
+from math import prod
 import signal
 from typing import Literal
 import wave
@@ -6,6 +7,7 @@ import edge_tts
 from .CustomCommuicate import CommWithPauses, NoPausesFound
 from pydub import AudioSegment
 import os
+import janus
 
 from .filters import SIPMessageType, SIPStatus, SipMessage, ConnectionType, CallState
 from .client import Client, SipFilter
@@ -397,11 +399,13 @@ class TTS:
 
 class DTMFHandler:
     def __init__(self) -> None:
+        self.queue: janus.Queue[str] = janus.Queue()
         self.dtmf_queue = asyncio.Queue()
         self.started_typing_event = asyncio.Event()
 
-    async def dtmf_callback(self, code: str) -> None:
-        await self.dtmf_queue.put(code)
+    def dtmf_callback(self, code: str) -> None:
+        print("the value is put to the queue ", code)
+        self.queue.sync_q.put(code)
 
     async def started_typing(self, event):
         await self.started_typing_event.wait()
@@ -412,7 +416,8 @@ class DTMFHandler:
 
         if finish_on_key:
             while True:
-                code = await self.dtmf_queue.get()
+                code = await self.queue.async_q.get()
+                self.queue.async_q.task_done()
                 if dtmf_codes and code == finish_on_key:
                     break
                 dtmf_codes.append(code)
@@ -421,8 +426,10 @@ class DTMFHandler:
 
         else:
             for _ in range(length):
-                code = await self.dtmf_queue.get()
+                code = await self.queue.async_q.get()
+                self.queue.async_q.task_done()
                 dtmf_codes.append(code)
+                print("i recived the value you put: ", code)
                 if not self.started_typing_event.is_set():
                     self.started_typing_event.set()
 

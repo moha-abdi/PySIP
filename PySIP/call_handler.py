@@ -4,6 +4,7 @@ from wave import Wave_read
 from PySIP import _print_debug_info
 from .filters import CallState
 from .CustomCommuicate import CommWithPauses
+from .utils.async_utils import wait_for
 
 
 class CallHandler:
@@ -43,7 +44,7 @@ class CallHandler:
     async def gather_and_say(
         self,
         length: int = 1,
-        delay: int = 5,
+        delay: int = 7,
         loop: int = 3,
         finish_on_key=None,
         loop_msg: str = "",
@@ -132,8 +133,8 @@ class CallHandler:
                             length = result.length
                             timeout = result.timeout
                             finish_on_key = result.finish_on_key
-                            extra_timeout = timeout
                             _print_debug_info("Started to wait for DTMF")
+                            awaitable = None
 
                             if self.previous_stream:
                                 asyncio.create_task(
@@ -141,13 +142,14 @@ class CallHandler:
                                         self.previous_stream.drain
                                     )
                                 )
-                                extra_timeout += self.previous_stream.audio_length
+                                awaitable = self.previous_stream.audio_sent_future
 
-                            dtmf_result = await asyncio.wait_for(
+                            dtmf_result = await wait_for(
                                 self.call.dtmf_handler.get_dtmf(length, finish_on_key),
-                                timeout
+                                timeout,
+                                awaitable
                             )
-
+                            print("we just go a result of ", dtmf_result)
                             result.set_result(dtmf_result)
                             self.previous_stream = None
 
