@@ -54,7 +54,7 @@ async def wait_for(fut, timeout, fut_2):
 
     def start_timeout(waiter, *args):
         nonlocal timeout_handle
-
+        print("The timout for DTMF has started right now...")
         timeout_handle = loop.call_later(timeout, _release_waiter, waiter)
 
     waiter = loop.create_future()
@@ -101,6 +101,6 @@ async def wait_for(fut, timeout, fut_2):
             except asyncio.exceptions.CancelledError as exc:
                 raise asyncio.exceptions.TimeoutError() from exc
     finally:
-        print("now this one is finished")
-        timeout_handle.cancel()
+        if timeout_handle:
+            timeout_handle.cancel()
 

