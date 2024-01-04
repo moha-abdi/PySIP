@@ -1,10 +1,9 @@
 import asyncio
 from enum import Enum
 from threading import Timer
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Dict, Optional
 import audioop
 import io
-import wave
 import random
 import socket
 import threading
@@ -294,9 +293,8 @@ class RTPClient:
         # send the packet will do it later
         self.RTCP.sendto(packet, (self.outIP, self.outPort + 1))
 
-    def send_now(self, source):
-        new_source = self.preprocess_audio(source)
-        t2 = Timer(0, self.send_from_source, args=(new_source,))
+    def send_now(self, source: AudioStream):
+        t2 = Timer(0, self.send_from_source, args=(source,))
         t2.name = "RTP Transmitter"
         t2.start()
 
@@ -338,7 +336,7 @@ class RTPClient:
         self.pmout.write(self.outOffset, data)
         self.outOffset += len(data)
 
-    def recv(self) -> None:
+    def recv(self) -> None: 
         while self.NSD:
             try:
                 packet = self.sin.recv(8192)
@@ -355,7 +353,6 @@ class RTPClient:
 
         try:
             while True:
-                time.sleep(0.01) # allow the main context to update the Event
                 if source.should_stop_streaming.is_set():
                     _print_debug_info("Sent partial frames. [DRAINED]")
                     source.audio_sent_future.set_result("Done")
@@ -586,4 +583,5 @@ class RTPClient:
         if packet.marker:
             _print_debug_info(event)
             if self.dtmf is not None:
-                self.loop.create_task(self.dtmf(event))
+                t = self.loop.create_task(self.dtmf(event))
+
