@@ -58,7 +58,6 @@ class CallHandler:
                 dtmf_result = await self.gather(
                     length=length, timeout=delay, finish_on_key=finish_on_key
                 )
-                print("i have a result for you ")
                 if dtmf_result:
                     dtmf_result = dtmf_result
                     return dtmf_result
@@ -149,7 +148,6 @@ class CallHandler:
                                 timeout,
                                 awaitable
                             )
-                            print("we just go a result of ", dtmf_result)
                             result.set_result(dtmf_result)
                             self.previous_stream = None
 
