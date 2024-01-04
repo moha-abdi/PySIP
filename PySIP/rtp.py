@@ -584,7 +584,7 @@ class RTPClient:
         """
 
         if packet.marker:
-            _print_debug_info(event)
+            # _print_debug_info(event)
             if self.dtmf is not None:
                 self.dtmf(event)
 
