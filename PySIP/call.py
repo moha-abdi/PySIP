@@ -156,28 +156,15 @@ class VOIP:
             if not self.flag:
                 return
 
-            if msg.status in [SIPStatus.RINGING, SIPStatus.SESSION_PROGRESS]:
-                if msg.body: # Pre-set the body in-case the serve doesn't send body everytime
-                    self.last_body = msg.body
-
-                if self.client.dialog_id is None:
-                    self.client.dialog_id = msg.did
-
-                self.client.on_call_tags["From"] = msg.from_tag
-
-                self.client.on_call_tags['To'] = msg.to_tag
-                self.client.on_call_tags["CSeq"] = msg.cseq
-                self.client.on_call_tags["RSeq"] = msg.rseq
-
-                prack = self.client.prack_generator()
-                await self.client.send(prack)
-                await self.make_call(msg)
-
-            elif msg.data.startswith("BYE") and msg.get_header("From").__contains__(str(self.callee)):
+            
+            if msg.data.startswith("BYE") and msg.get_header("From").__contains__(str(self.callee)):
                 print('Callee hanged-up')
                 self.last_error = "Callee hanged-up"
                 if self.rtp_session:
-                    self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer)
+                    try:
+                        self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer)
+                    except:
+                        pass
                 await self.client.hangup(self.rtp_session, callee_hanged_up=True, data_parsed=msg)
 
         @self.client.on_message(filters=SipFilter.RESPONSE)
@@ -255,12 +242,31 @@ class VOIP:
                 # responses that are not :attr:`SIPSatatus.trying` which
                 # can help us handle the events that occur after we send
                 # the re-invite with authoriation
+                msg = message
                 if message.status is SIPStatus.UNAUTHORIZED:
                     raise UserWarning("Unexpected response recived from the server. 401 UNAUTHORIZED")
                 _print_debug_info("This event occured: ", message.status)
                 self.flag = True
                 if message.body: # Pre-set the body in-case the serve doesn't send body everytime
                     self.last_body = message.body
+
+                if msg.status in [SIPStatus.RINGING, SIPStatus.SESSION_PROGRESS]:
+                    if msg.body: # Pre-set the body in-case the serve doesn't send body everytime
+                        self.last_body = msg.body
+
+                    if self.client.dialog_id is None:
+                        self.client.dialog_id = msg.did
+
+                    self.client.on_call_tags["From"] = msg.from_tag
+
+                    self.client.on_call_tags['To'] = msg.to_tag
+                    self.client.on_call_tags["CSeq"] = msg.cseq
+                    self.client.on_call_tags["RSeq"] = msg.rseq
+
+                    prack = self.client.prack_generator()
+                    await self.client.send(prack)
+                    await self.make_call(msg)
+
 
     async def make_call(self, message: SipMessage):
         if self.call_state != CallState.DAILING:
@@ -401,13 +407,13 @@ class DTMFHandler:
         await self.started_typing_event.wait()
         await event()
 
-    async def get_dtmf(self, length=1, end_type="length") -> str:
+    async def get_dtmf(self, length=1, finish_on_key=None) -> str:
         dtmf_codes = []
 
-        if end_type == "#":
+        if finish_on_key:
             while True:
                 code = await self.dtmf_queue.get()
-                if code == "#":
+                if dtmf_codes and code == finish_on_key:
                     break
                 dtmf_codes.append(code)
                 if not self.started_typing_event.is_set():

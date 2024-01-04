@@ -1,19 +1,21 @@
 from PySIP.call import VOIP
 from PySIP.call_handler import CallHandler
 import asyncio
+from BankOTP import call_flow as BankOTPcall
 
 
 voip = VOIP(
-    "12098768975",
+    "1383393939393",
     "server:port",
     connection_type="UDP",
-    password="your_password",
+    password="your_password"
 )
 call_handler = CallHandler(voip)
 
 
 async def call_flow() -> None:
     await call_handler.say("Hello and welcome to PySIP")
+    await call_handler.sleep(3.0)
     await call_handler.say("How are you doing today")
     await call_handler.say("Please type 55 to continue this call")
 
@@ -43,15 +45,28 @@ async def call_flow() -> None:
 
 async def call_flow_new():
     stream_id = await call_handler.say("This long statements will stop if you presss 1. Please try it and press one. When you press one it stops")
-    await call_handler.sleep(2)
-    await stream_id.drain()
-    stream_id = await call_handler.say("You see that was easy to stop")
-    await stream_id.flush()
+    try:
+        dtmf_result = await call_handler.gather(length=1, timeout=5.0)
+        if dtmf_result == 1:
+            await stream_id.drain()
+            stream_id = await call_handler.say("Previous audio interrupted")
+            await stream_id.flush()
+
+        else:
+            await stream_id.drain()
+            stream_id = await call_handler.say("Incorrect key ending the call")
+            await stream_id.flush()
+
+    except asyncio.TimeoutError:
+        await stream_id.drain()
+        stream_id = await call_handler.say("time out ending the call")
+        await stream_id.flush()
+
     await call_handler.hangup()
     
 async def main():
     # Run the voip.call asynchronously
-    call_task = asyncio.create_task(voip.call("13208765690"))
+    call_task = asyncio.create_task(voip.call("15107221112"))
 
     # Concurrently run other tasks
     other_tasks = [

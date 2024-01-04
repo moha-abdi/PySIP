@@ -619,6 +619,9 @@ class SipMessage:
             except IndexError:
                 pass
 
+            except ValueError:
+                pass
+
     def get_header(self, key) -> str:
         return self.headers.get(key)
 

@@ -26,22 +26,55 @@ class CallHandler:
 
         return self.audio_stream
 
-    async def gather(self, length: int = 1, timeout: float = 7.0, end_type: str = "length") -> int:
+    async def gather(
+        self, length: int = 1, timeout: float = 7.0, finish_on_key=None
+    ) -> int:
         """This method gathers a dtmf tone with the specified
         length and then returns when done"""
         dtmf_future = asyncio.Future()
         dtmf_future.__setattr__("length", length)
         dtmf_future.__setattr__("timeout", timeout)
-        dtmf_future.__setattr__("end_type", end_type)
+        dtmf_future.__setattr__("finish_on_key", finish_on_key)
         await self.audio_queue.put(("dtmf", dtmf_future))
 
         result = await dtmf_future
         return int(result)
 
-    def gather_and_say(self, text: str, length: int = 1):
+    async def gather_and_say(
+        self,
+        length: int = 1,
+        delay: int = 5,
+        loop: int = 3,
+        finish_on_key=None,
+        loop_msg: str = "",
+        delay_msg: str = "",
+    ):
         """This method waits for dtmf keys and then if received
         it instantly send it"""
-        raise NotImplementedError
+        dtmf_result = None
+        for _ in range(loop):
+            try:
+                dtmf_result = await self.gather(
+                    length=length, timeout=delay, finish_on_key=finish_on_key
+                )
+                print("i have a result for you ")
+                if dtmf_result:
+                    dtmf_result = dtmf_result
+                    return dtmf_result
+
+            except asyncio.TimeoutError:
+                text = delay_msg or "You did not any keys please try again"
+                await self.say(text)
+                continue
+
+        text = (
+            loop_msg
+            or f"You failed to enter the key in {loop} tries. Hanging up the call"
+        )
+        stream = await self.say(text)
+        await stream.flush()
+
+        return dtmf_result
 
     async def sleep(self, delay: float):
         await self.audio_queue.put(("sleep", delay))
@@ -83,7 +116,7 @@ class CallHandler:
                             await self.previous_stream.flush()
 
                         asyncio.get_event_loop().run_in_executor(
-                            None, self.call.rtp_session.send_from_source, result
+                            None, self.call.rtp_session.send_now, result
                         )
 
                         self.previous_stream = result
@@ -98,18 +131,23 @@ class CallHandler:
                         try:
                             length = result.length
                             timeout = result.timeout
-                            end_type = result.end_type
+                            finish_on_key = result.finish_on_key
+                            extra_timeout = timeout
+                            _print_debug_info("Started to wait for DTMF")
+
                             if self.previous_stream:
                                 asyncio.create_task(
                                     self.call.dtmf_handler.started_typing(
                                         self.previous_stream.drain
                                     )
                                 )
-                            _print_debug_info("Started to wait for DTMF")
+                                extra_timeout += self.previous_stream.audio_length
 
                             dtmf_result = await asyncio.wait_for(
-                                self.call.dtmf_handler.get_dtmf(length, end_type), timeout
+                                self.call.dtmf_handler.get_dtmf(length, finish_on_key),
+                                timeout
                             )
+
                             result.set_result(dtmf_result)
                             self.previous_stream = None
 
@@ -135,13 +173,24 @@ class AudioStream(Wave_read):
         self.instance = instance
         super().__init__(f)
 
+        self.audio_length = self.getnframes() / float(self.getframerate())
+
+    @property
+    def audio_length(self):
+        """The audio_length property."""
+        return self._audio_length
+
+    @audio_length.setter
+    def audio_length(self, value):
+        self._audio_length = value
+
     async def drain(self):
         """This ensures that any remains of the current stream is dropped"""
         if self.instance:
             await self.instance.audio_queue.put(("drain", self))
             return
         self.should_stop_streaming.set()
-     
+
     async def flush(self):
         await self.audio_sent_future
 
