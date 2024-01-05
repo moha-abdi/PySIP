@@ -1,15 +1,17 @@
+import asyncio
 from enum import Enum
 from threading import Timer
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Dict, Optional
 import audioop
 import io
-import wave
 import random
 import socket
 import threading
 import time
 import warnings
 from pydub import AudioSegment
+
+from PySIP.call_handler import AudioStream
 from . import _print_debug_info
 from .filters import PayloadType
 
@@ -23,6 +25,11 @@ __all__ = [
     "RTPPacketManager",
     "RTPClient",
     "TransmitType",
+]
+
+SUPPORTED_CODEC = [
+    PayloadType.PCMU,
+    PayloadType.PCMA
 ]
 
 RTPCompatibleVersions = [2]
@@ -49,6 +56,11 @@ class DynamicPayloadType(Exception):
 
 class RTPParseError(Exception):
     pass
+
+
+class NoSupportedCodecsFound(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
 
 
 class RTPProtocol(Enum):
@@ -212,15 +224,19 @@ class RTPClient:
         outIP: str,
         outPort: int,
         sendrecv: TransmitType,
+        loop: asyncio.AbstractEventLoop,
         dtmf: Optional[Callable[[str], None]] = None,
     ):
         self.NSD = True
         # Example: {0: PayloadType.PCMU, 101: PayloadType.EVENT}
         self.assoc = assoc
+        self.preference = None
         _print_debug_info("Selecting audio codec for transmission")
         for m in assoc:
             try:
                 if int(assoc[m]) is not None:
+                    if assoc[m] not in SUPPORTED_CODEC:
+                        continue
                     _print_debug_info(f"Selected {assoc[m]}")
                     """
                     Select the first available actual codec to encode with.
@@ -232,12 +248,16 @@ class RTPClient:
             except Exception:
                 _print_debug_info(f"{assoc[m]} cannot be selected as an audio codec")
 
+        if not self.preference:
+            raise NoSupportedCodecsFound("No supported codecs found closing...")
+
         self.inIP = inIP
         self.inPort = inPort
         self.outIP = outIP
         self.outPort = outPort
 
         self.dtmf = dtmf
+        self.loop = loop
 
         self.pmout = RTPPacketManager()  # To Send
         self.pmin = RTPPacketManager()  # Received
@@ -273,9 +293,8 @@ class RTPClient:
         # send the packet will do it later
         self.RTCP.sendto(packet, (self.outIP, self.outPort + 1))
 
-    def send_now(self, source):
-        new_source = self.preprocess_audio(source)
-        t2 = Timer(0, self.send_from_source, args=(new_source,))
+    def send_now(self, source: AudioStream):
+        t2 = Timer(0, self.send_from_source, args=(source,))
         t2.name = "RTP Transmitter"
         t2.start()
 
@@ -317,7 +336,7 @@ class RTPClient:
         self.pmout.write(self.outOffset, data)
         self.outOffset += len(data)
 
-    def recv(self) -> None:
+    def recv(self) -> None: 
         while self.NSD:
             try:
                 packet = self.sin.recv(8192)
@@ -329,15 +348,23 @@ class RTPClient:
             except OSError:
                 pass
 
-    def send_from_source(self, source):
-        file = wave.open(source, 'rb')
-        _print_debug_info("started to send from src: ", source)
+    def send_from_source(self, source: AudioStream):
+        _print_debug_info("started to send from src with id: ", source)
 
         try:
             while True:
-                payload = file.readframes(160)
+                if source.should_stop_streaming.is_set():
+                    _print_debug_info("Sent partial frames. [DRAINED]")
+                    if not source.audio_sent_future.done():
+                        self.loop.call_soon_threadsafe(source.audio_sent_future.set_result, "Done")
+
+                    break
+
+                payload = source.readframes(160)
                 if not payload:
                     _print_debug_info("Sent all frames.")
+                    if not source.audio_sent_future.done():
+                        self.loop.call_soon_threadsafe(source.audio_sent_future.set_result, "Done")
                     break
 
                 payload = audioop.lin2lin(payload, 2, 1)
@@ -370,7 +397,7 @@ class RTPClient:
                 pass
 
         finally:
-            pass
+            source.close()
 
 
     def trans(self) -> None:
@@ -395,7 +422,8 @@ class RTPClient:
 
             try:
                 self.sout.sendto(packet, (self.outIP, self.outPort))
-            except OSError:
+            except OSError as e:
+                print("THis oserror occured: ", e)
                 warnings.warn(
                     "RTP Packet failed to send!",
                     RuntimeWarning,
@@ -556,6 +584,7 @@ class RTPClient:
         """
 
         if packet.marker:
-            _print_debug_info(event)
+            # _print_debug_info(event)
             if self.dtmf is not None:
                 self.dtmf(event)
+

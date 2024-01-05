@@ -10,11 +10,12 @@ import hashlib
 import hmac
 import base64
 import configparser
-from typing import Dict, Literal
+from typing import Callable, Dict, Literal
 import warnings
+import traceback
 
 import requests
-from .filters import SipFilter, SipMessage, SIPMessageType, SIPCompatibleMethods, SIPStatus, ConnectionType
+from .filters import SipFilter, SipMessage, SIPMessageType, SIPCompatibleMethods, SIPStatus, ConnectionType, CallState
 from . import _print_debug_info
 from .udp_handler import open_udp_connection
 
@@ -60,9 +61,10 @@ class Client:
 
     def __init__(
         self, username, server, callee, connection_type: str,
-        password=None, device_id=None, token=None
+        from_tag=None, password=None, device_id=None, token=None
     ):
         self.username = username
+        self.from_tag = from_tag if from_tag else username
         self.server = server.split(":")[0]
         self.port = server.split(":")[1]
         self.callee = callee
@@ -75,6 +77,7 @@ class Client:
             self.password = self.generate_password()
 
         self.is_running = False
+        self.call_state: Callable[[], CallState] = None
         self.CTS = 'TLS' if 'TLS' in connection_type else connection_type
         self.connection_type = ConnectionType(connection_type)
         self.token = token
@@ -91,27 +94,28 @@ class Client:
         self.urn_UUID = self.gen_urn_uuid()
         self.invite_details: SipMessage = None
         self.dialog_id = None
-        self.on_call_tags: Dict[Literal["From", "To", "CSeq", "RSeq"], str] = \
-                            {"From": None, "To": None, "CSeq": None, "RSeq": None}
+        self.on_call_tags: Dict[Literal["From", "To", "CSeq", "RSeq", "branch"], str] = \
+                            {"From": None, "To": None, "CSeq": None, "RSeq": None, "branch": None}
 
     async def main(self):
         try:
             await self.connect()
-            await self.invite()
+            await self.register()
 
         except Exception as e:
             print("Error: ", e)
+            traceback.print_exc()
             return
 
         finally:
-            print("Main-loop completed. with no errors.")
             return
 
-    def generate_password(self, method=None):
+    def generate_password(self, method=None, username=None):
         if method:
             timestamp = str(int(time.time() * 1000))
             salt = self.gather_salts("salt_2").encode()
-            message = (method + self.username + "@" + self.server + timestamp).encode()
+            user = self.from_tag if not username else username
+            message = (method + user + "@" + self.server + timestamp).encode()
 
             message_hash = hmac.new(salt, message, hashlib.sha512).digest()
             hashb64 = base64.b64encode(message_hash).decode()
@@ -167,8 +171,8 @@ class Client:
         """
         return str(uuid.uuid4())
 
-    def generate_response(self, method, nonce, uri):
-        A1_string = (self.username + ":" + self.server + ":" + self.password)
+    def generate_response(self, method, nonce, realm, uri):
+        A1_string = (self.username + ":" + realm + ":" + self.password)
         A1_hash = hashlib.md5(A1_string.encode()).hexdigest()
 
         A2_string = (method + ":" + uri).encode()
@@ -209,6 +213,7 @@ class Client:
                 self.is_running = True
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
                 ssl_context.set_ciphers("AES128-SHA")
+                ssl_context.keylog_filename = 'premaster.txt'
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server,
                     self.port,
@@ -227,13 +232,14 @@ class Client:
             received_message = SipMessage(data)
             received_message.parse()
             nonce = received_message.nonce
+            realm = received_message.realm
             ip = received_message.public_ip
             port = received_message.rport
 
             if not self.my_puplic_ip:
                 self.my_puplic_ip = ip
 
-            new_via = f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
+            new_via = f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
             msg = re.sub(r"Via:.*[\r\n]", new_via, msg, flags=re.M)
 
             new_contact = (f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>;" +
@@ -248,8 +254,9 @@ class Client:
 
             uri = f'sip:{self.server}:{self.port};transport={self.CTS}'
             msg += (f'Authorization: Digest username="{self.username}",' +
-                    f'realm="{self.server}", nonce="{nonce}", uri="{uri}",'
-                    f'response="{self.generate_response("REGISTER", nonce, uri)}"\r\n')
+                    f'realm="{realm}", nonce="{nonce}", uri="{uri}",'
+                    f'response="{self.generate_response("REGISTER", nonce, realm, uri)}",' +
+                    f'algorithm="MD5"\r\n')
             msg += "Content-Length: 0\r\n\r\n"
 
         else:
@@ -262,10 +269,10 @@ class Client:
             # generated_checksum = self.generate_password(method='REGISTER') # not required at all
 
             msg = (f"REGISTER sip:{self.server} SIP/2.0\r\n"
-                f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(branch_id).upper()};alias\r\n"
+                f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(branch_id).upper()};alias\r\n"
                 f"Route: <sip:{self.server}:{port};transport={self.CTS};lr>\r\n"
                 f"Max-Forwards: 70\r\n"
-                f"From: <sip:{self.username}@{self.server}>;tag={tag}\r\n"
+                f"From: <sip:{self.from_tag}@{self.server}>;tag={tag}\r\n"
                 f"To: <sip:{self.username}@{self.server}>\r\n"
                 f"Call-ID: {call_id}\r\n"
                 f"CSeq: {self.register_counter.next()} REGISTER\r\n"
@@ -289,6 +296,7 @@ class Client:
             received_message = SipMessage(data)
             received_message.parse()
             nonce = received_message.nonce
+            realm = received_message.realm
             ip = received_message.public_ip
             port = received_message.rport
 
@@ -296,14 +304,14 @@ class Client:
             msg = re.sub(r"CSeq:.*[\r\n]", new_cseq, msg, flags=re.M)
 
             uri = f'sip:{self.callee}@{self.server}:{self.port};transport={self.CTS}'
-            old_client_timestamp = re.findall(r"Client-Timestamp:.*[\r\n]", msg)
+            old_content_type = re.findall(r"Content-Type:.*[\r\n]", msg)
 
-            new_value = (old_client_timestamp[0] +
-                    (f'Authorization: Digest username="{self.username}",' +
-                    f'realm="{self.server}", nonce="{nonce}", uri="{uri}",'
-                    f'response="{self.generate_response("INVITE", nonce, uri)}"\r\n'))
+            new_value = ((f'Authorization: Digest username="{self.username}",' +
+                    f'realm="{realm}", nonce="{nonce}", uri="{uri}",'
+                    f'response="{self.generate_response("INVITE", nonce, realm, uri)}",'+
+                    f'algorithm="MD5"\r\n') + old_content_type[0])
 
-            msg = msg.replace(old_client_timestamp[0], new_value)
+            msg = msg.replace(old_content_type[0], new_value)
 
             self.invite_details = SipMessage(msg)
             self.invite_details.parse()
@@ -315,28 +323,28 @@ class Client:
             call_id = self.call_id
             # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
-            msg = f"INVITE sip:{self.callee}@{self.server} SIP/2.0\r\n"
-            msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()}\r\n"
+            msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
+            msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
             msg += f"Max-Forwards: 70\r\n"
-            msg += f"From: <sip:{self.username}@{self.server}>;tag={tag}\r\n"
-            msg += f"To: <sip:{self.callee}@{self.server}>\r\n"
-            msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS}>\r\n"
+            msg += f"From:sip:{self.from_tag}@{self.server};tag={tag}\r\n"
+            msg += f"To: sip:{self.callee}@{self.server}\r\n"
+            msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
             msg += f"Call-ID: {call_id}\r\n"
             msg += f"CSeq: {self.register_counter.next()} INVITE\r\n"
-            # msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
+            msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
             msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
-            # msg += f"Supported: replaces, 100rel, timer, norefersub\r\n"
-            # msg += f"Session-Expires: 1800\r\n"
-            # msg += f"Min-SE: 90\r\n"
+            msg += f"Supported: replaces, 100rel, timer, norefersub\r\n"
+            msg += f"Session-Expires: 1800\r\n"
+            msg += f"Min-SE: 90\r\n"
             # msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
-            # msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
-            # msg += f"User-Agent: PySIP-1.2.0\r\n"
+            msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
+            msg += f"User-Agent: PySIP-1.2.0\r\n"
             # msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
-            # body = SipMessage.generate_sdp(ip)
-            msg += f"Content-Length: 0\r\n\r\n"
-            # msg += body
+            body = SipMessage.generate_sdp(ip)
+            msg += f"Content-Length:   {len(body.encode())}\r\n\r\n"
+            msg += body
 
             return msg
 
@@ -348,9 +356,9 @@ class Client:
         data_parsed.parse()
 
         msg = f"ACK sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={data_parsed.from_tag}\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={data_parsed.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
         msg += f"Call-ID: {data_parsed.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} ACK\r\n"
@@ -364,9 +372,9 @@ class Client:
         _, port = self.writer.get_extra_info('sockname')
 
         msg = f"ACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={self.on_call_tags['branch']};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.invite_details.cseq} ACK\r\n"
@@ -380,9 +388,9 @@ class Client:
 
         msg = f"CANCEL sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
         msg += (f"Via: SIP/2.0/{self.CTS} {ip}:{port};" +
-                f"rport;branch=z9hG4bK{self.invite_details.branch};alias\r\n")
+                f"rport;branch={self.invite_details.branch};alias\r\n")
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From:sip:{self.username}@{self.server};tag={self.invite_details.from_tag}\r\n"
+        msg += f"From:sip:{self.from_tag}@{self.server};tag={self.invite_details.from_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server}\r\n"
         msg += f"Call-ID: {self.invite_details.call_id}\r\n"
         msg += f"CSeq: {self.invite_details.cseq} CANCEL\r\n"
@@ -396,9 +404,9 @@ class Client:
         _, port = self.writer.get_extra_info('sockname')
 
         msg = f"PRACK sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
-        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
         msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={self.on_call_tags['From']}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.register_counter.next()} PRACK\r\n"
@@ -412,14 +420,31 @@ class Client:
         peer_ip, peer_port = self.writer.get_extra_info("peername")
         _, port = self.writer.get_extra_info('sockname')
 
-        msg = f"BYE sip:{peer_ip}:{self.port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
+        msg = f"BYE sip:{self.callee}@{peer_ip}:{peer_port};transport={self.CTS.lower()};did={self.dialog_id} SIP/2.0\r\n"
         msg += (f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;" +
-                f"branch=z9hG4bK{str(uuid.uuid4()).upper()};alias\r\n")
-        msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.username}@{self.server};tag={self.on_call_tags['From']}\r\n"
+                f"branch={str(uuid.uuid4()).upper()};alias\r\n")
+        msg += 'Reason: Q.850;cause=16;text="normal call clearing"'
+        msg += f"Max-Forwards: 64\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={self.on_call_tags['From']}\r\n"
         msg += f"To:sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.register_counter.next()} BYE\r\n"
+        msg += f"Content-Length:  0\r\n\r\n"
+
+        return msg
+
+    def ok_generator(self, data_parsed: SipMessage):
+        peer_ip, peer_port = self.writer.get_extra_info("peername")
+        _, port = self.writer.get_extra_info('sockname')
+
+        msg = f"SIP/2.0 200 OK\r\n"
+        msg += (f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;" +
+                f"branch={data_parsed.branch};alias\r\n")
+        msg += f"Max-Forwards: 70\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={data_parsed.from_tag}\r\n"
+        msg += f"To:sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
+        msg += f"Call-ID: {self.call_id}\r\n"
+        msg += f"CSeq: {data_parsed.cseq} BYE\r\n"
         msg += f"Content-Length:  0\r\n\r\n"
 
         return msg
@@ -511,9 +536,7 @@ class Client:
 
     async def reinvite(self, auth, msg, data):
         reinvite_msg = self.build_invite_message(auth, msg, data)
-        ack_msg = self.ack_generator(data)
 
-        await self.send(ack_msg)
         await self.send(reinvite_msg)
         while self.is_running:
             try:
@@ -557,16 +580,16 @@ class Client:
             except asyncio.TimeoutError:
                 _print_debug_info("Timeout occured on invite, will try ot resend.")
 
-    async def hangup(self, rtp_session = None):
-        if not self.dialog_id:
+    async def hangup(self, rtp_session = None, callee_hanged_up = False, data_parsed = None):
+        if not self.call_state() is CallState.ANSWERED:
             warnings.warn('WARNING! There is no call in-progress trying to cancel instead..')
 
-        await self.cancel()
+        await self.cancel(callee_hanged_up, data_parsed)
         if rtp_session:
             rtp_session.stop()
         await asyncio.sleep(0.2)
 
-    async def cancel(self):
+    async def cancel(self, callee_hanged_up, data_parsed):
         if not self.invite_details:
             warnings.warn('WARNING! There is no invite request to cancel')
             await asyncio.sleep(0.1)
@@ -576,17 +599,19 @@ class Client:
             await self.cleanup()
             return
 
-        if self.dialog_id:
-            msg = self.bye_generator()
+        if self.call_state() is CallState.ANSWERED:
+            if callee_hanged_up:
+                msg = self.ok_generator(data_parsed=data_parsed)
+            else:
+                msg = self.bye_generator()
         else:
             msg = self.cancel_generator()
 
         await self.send(msg)
         await asyncio.sleep(0.1)
         self.is_running = False
-        await asyncio.sleep(0.2)
+        _print_debug_info("Client stopped")
 
-        await self.cleanup()
 
     async def cleanup(self):
 
@@ -594,11 +619,10 @@ class Client:
         for task in asyncio.all_tasks():
             if task.get_name() == 'pysip_4' and task._state == 'PENDING':
                 cancel_all = True
-                print("Cancelling all tasks...")
                 break
 
         if cancel_all:
-            [task.cancel() for task in asyncio.all_tasks()]
+            [task.cancel() for task in asyncio.all_tasks() if task != asyncio.current_task()]
 
         else:
             [task.cancel() for task in asyncio.all_tasks()

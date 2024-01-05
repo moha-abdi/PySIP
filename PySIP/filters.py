@@ -45,6 +45,14 @@ class ConnectionType(Enum):
         return obj
 
 
+class CallState(Enum):
+    DAILING = "DIALING"
+    RINGING = "RINGING"
+    ANSWERED = "ANSWERED"
+    ENDED = "ENDED"
+    FAILED = "FAILED"
+
+
 class Filter:
     def __init__(self):
         self.conditions = [self]
@@ -386,6 +394,7 @@ class SipMessage:
         self.headers = {}
         self.body = None
         self.nonce = None
+        self.realm = None
         self.data = message
 
         # Initialize properties with default values
@@ -506,6 +515,14 @@ class SipMessage:
     def nonce(self, value):
         self._nonce = value
 
+    @property
+    def realm(self):
+        return self._realm
+
+    @realm.setter
+    def realm(self, value):
+        self._realm = value
+
 
     def parse(self):
         data = self.data.split('\r\n\r\n')
@@ -577,27 +594,35 @@ class SipMessage:
         self.branch = branch_header.split('branch=')[1].split(";")[0]
 
         if self.type == SIPMessageType.RESPONSE:
-            self.status = SIPStatus(int(self.type_header[1]))
-            via_header = self.get_header('Via')
-            self.public_ip = via_header.split('received=')[1].split(";")[0]
-            # RPort
-            self.rport = via_header.split('rport=')[1].split(';')[0]
-            auth_header = self.get_header('WWW-Authenticate')
-            if auth_header:
-                self.nonce = auth_header.split('nonce="')[1].split('"')[0]
-            # dialog_id
-            contact_header = self.get_header("Contact")
-            if contact_header:
-                try:
-                    self.did = contact_header.split("did=")[1].split(">")[0]
-                except IndexError:
-                    pass
-            #RSeq
-            rseq_header = self.get_header("RSeq")
-            if rseq_header:
-                self.rseq = rseq_header
+            try:
+                self.status = SIPStatus(int(self.type_header[1]))
+                via_header = self.get_header('Via')
+                self.public_ip = via_header.split('received=')[1].split(";")[0]
 
-    def get_header(self, key):
+                # RPort
+                self.rport = via_header.split('rport=')[1].split(';')[0]
+                auth_header = self.get_header('WWW-Authenticate')
+                if auth_header:
+                    self.nonce = auth_header.split('nonce="')[1].split('"')[0]
+                    self.realm = auth_header.split('realm="')[1].split('"')[0]
+                # dialog_id
+                contact_header = self.get_header("Contact")
+                if contact_header:
+                    try:
+                        self.did = contact_header.split("did=")[1].split(">")[0]
+                    except IndexError:
+                        pass
+                #RSeq
+                rseq_header = self.get_header("RSeq")
+                if rseq_header:
+                    self.rseq = rseq_header
+            except IndexError:
+                pass
+
+            except ValueError:
+                pass
+
+    def get_header(self, key) -> str:
         return self.headers.get(key)
 
     def get_headers(self):
@@ -685,12 +710,15 @@ class SDPParser:
             elif 'ptime' in attr:
                 self.ptime = int(attr.split(':')[1])
             elif 'rtpmap' in attr:
-                if self.rtpmap:
+                try:
+                    rtpmap_val = attr.split(' ')
+                    payload_type = int(rtpmap_val[0].split(':')[1])
+                    codec = PayloadType(payload_type)
+                    self.rtpmap[payload_type] = codec
+
+                except ValueError:
                     continue
-                rtpmap_val = attr.split(' ')
-                payload_type = int(rtpmap_val[0].split(':')[1])
-                codec = PayloadType(payload_type)
-                self.rtpmap[payload_type] = codec
+
             elif 'sendrecv' in attr:
                 self.direction = attr
 
@@ -796,5 +824,5 @@ class PayloadType(Enum):
     H263 = 34, 90000, 0, "H263"
 
     # Non-codec
-    EVENT = "telephone-event", 8000, 0, "telephone-event"
+    EVENT = 121, 8000, 0, "telephone-event"
     UNKNOWN = "UNKNOWN", 0, 0, "UNKNOWN CODEC"
