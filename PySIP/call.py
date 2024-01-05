@@ -1,4 +1,5 @@
 import asyncio
+from math import prod
 import signal
 from typing import Literal
 import wave
@@ -6,8 +7,9 @@ import edge_tts
 from .CustomCommuicate import CommWithPauses, NoPausesFound
 from pydub import AudioSegment
 import os
+import janus
 
-from .filters import SIPMessageType, SIPStatus, SipMessage, ConnectionType
+from .filters import SIPMessageType, SIPStatus, SipMessage, ConnectionType, CallState
 from .client import Client, SipFilter
 from enum import Enum
 from .rtp import PayloadType, RTPClient, TransmitType
@@ -20,13 +22,6 @@ __all__ = [
     'TTS'
 ]
 
-class CallState(Enum):
-    DAILING = "DIALING"
-    RINGING = "RINGING"
-    ANSWERED = "ANSWERED"
-    ENDED = "ENDED"
-    FAILED = "FAILED"
-
 class CallStatus(Enum):
     REGISTERING = "REGISTERING"
     REREGISTERING = "REREGISTERING"
@@ -36,6 +31,7 @@ class CallStatus(Enum):
     INVITED = "INVITED"
     FAILED = "FAILED"
     INACTIVE = "INACTIVE"
+
 
 class VOIP:
     """
@@ -64,12 +60,14 @@ class VOIP:
         route: str,
         *,
         connection_type: Literal['TCP', 'UDP', 'TLS', 'TLSv1'] = 'TCP',
+        from_tag: str = None,
         password: str=None,
         device_id: str =None,
         token: str =None
     ) -> None:
 
         self.username = username
+        self.from_tag = from_tag
         self.route = route
         self.server = route.split(":")[0]
         self.port = int(route.split(":")[1])
@@ -85,20 +83,23 @@ class VOIP:
         self.last_error = None
         self.received_bytes = False
         self.last_body = None
+        self.dtmf_handler: DTMFHandler = None
 
         self.client = Client(
             self.username,
             self.route,
             self.callee,
             self.connection_type,
+            self.from_tag,
             self.password,
             self.device_id,
             self.token
         )
+        self.client.call_state = lambda: self.call_state
         self.on_message()
 
     async def call(self, callee: str | int, audio_file: str = None, tts: bool = False,
-        text: str = None, language: str = 'so-SO-UbaxNeural'):
+        text: str = None, language: str = 'en-US-AriaNeural'):
         """
         Initiate a call with the provided number.
 
@@ -135,9 +136,21 @@ class VOIP:
         signal.signal(signal.SIGINT, self.signal_handler)
 
         if asyncio.get_event_loop().is_running():
-            await asyncio.create_task(self.client.main(), name='pysip_1')
+            try:
+                await asyncio.create_task(self.client.main(), name='pysip_1')
+            finally:
+                await asyncio.sleep(0.2)
+                await self.client.cleanup()
+                print("Main-loop completed.")
+                
         else:
-            asyncio.run(self.client.main())
+            try:
+                asyncio.run(self.client.main())
+            finally:
+                await asyncio.sleep(0.2)
+                await self.client.cleanup()
+                print("Main-loop completed.")
+
 
     def on_message(self):
         @self.client.on_message()
@@ -145,29 +158,16 @@ class VOIP:
             if not self.flag:
                 return
 
-            if msg.status in [SIPStatus.RINGING, SIPStatus.SESSION_PROGRESS]:
-                if msg.body: # Pre-set the body in-case the serve doesn't send body everytime
-                    self.last_body = msg.body
-
-                if self.client.dialog_id is None:
-                    self.client.dialog_id = msg.did
-
-                self.client.on_call_tags["From"] = msg.from_tag
-
-                self.client.on_call_tags['To'] = msg.to_tag
-                self.client.on_call_tags["CSeq"] = msg.cseq
-                self.client.on_call_tags["RSeq"] = msg.rseq
-
-                prack = self.client.prack_generator()
-                await self.client.send(prack)
-                await self.make_call(msg)
-
-            elif msg.get_header('Reason'):
+            
+            if msg.data.startswith("BYE") and msg.get_header("From").__contains__(str(self.callee)):
                 print('Callee hanged-up')
                 self.last_error = "Callee hanged-up"
                 if self.rtp_session:
-                    self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer)
-                await self.client.hangup(self.rtp_session)
+                    try:
+                        self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer)
+                    except:
+                        pass
+                await self.client.hangup(self.rtp_session, callee_hanged_up=True, data_parsed=msg)
 
         @self.client.on_message(filters=SipFilter.RESPONSE)
         async def error_handler(message: SipMessage):
@@ -175,7 +175,7 @@ class VOIP:
                 return
 
             if message.method in ['PRACK', 'ACK']:
-                    return
+                return
 
             if str(message.status).startswith('4') and message.status != SIPStatus.UNAUTHORIZED:
                 """
@@ -223,9 +223,10 @@ class VOIP:
             if message.type == SIPMessageType.MESSAGE:
                 if message.get_header("Authorization"):
                     self.status = CallStatus.REINVITING
+                    self.client.on_call_tags['branch'] = message.branch
                     _print_debug_info("RE-INVITING...")
                 else:
-                    self.status = CallStatus.REGISTERING
+                    self.status = CallStatus.INVITING
                     _print_debug_info("INVITING...")
 
             elif message.status == SIPStatus.OK:
@@ -243,10 +244,31 @@ class VOIP:
                 # responses that are not :attr:`SIPSatatus.trying` which
                 # can help us handle the events that occur after we send
                 # the re-invite with authoriation
+                msg = message
+                if message.status is SIPStatus.UNAUTHORIZED:
+                    raise UserWarning("Unexpected response recived from the server. 401 UNAUTHORIZED")
                 _print_debug_info("This event occured: ", message.status)
                 self.flag = True
                 if message.body: # Pre-set the body in-case the serve doesn't send body everytime
                     self.last_body = message.body
+
+                if msg.status in [SIPStatus.RINGING, SIPStatus.SESSION_PROGRESS]:
+                    if msg.body: # Pre-set the body in-case the serve doesn't send body everytime
+                        self.last_body = msg.body
+
+                    if self.client.dialog_id is None:
+                        self.client.dialog_id = msg.did
+
+                    self.client.on_call_tags["From"] = msg.from_tag
+
+                    self.client.on_call_tags['To'] = msg.to_tag
+                    self.client.on_call_tags["CSeq"] = msg.cseq
+                    self.client.on_call_tags["RSeq"] = msg.rseq
+
+                    prack = self.client.prack_generator()
+                    await self.client.send(prack)
+                    await self.make_call(msg)
+
 
     async def make_call(self, message: SipMessage):
         if self.call_state != CallState.DAILING:
@@ -257,12 +279,26 @@ class VOIP:
         if message.body:
             body = message.body
 
-        sdp = SipMessage.parse_sdp(body)
+        try:
+            sdp = SipMessage.parse_sdp(body)
+        except Exception:
+            print("Could not parse the provided SDP.. Closing...")
+            return
+
+        self.dtmf_handler = DTMFHandler()
+        loop = asyncio.get_event_loop()
         rtp_session = RTPClient(sdp.rtpmap, self.client.my_private_ip, 64417,
-                                    sdp.ip_address, sdp.port, TransmitType.SENDRECV)
+                                    sdp.ip_address, sdp.port, TransmitType.SENDRECV,
+                                    loop, self.dtmf_handler.dtmf_callback)
         self.rtp_session = rtp_session
         rtp_session.start()
-        asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
+        _print_debug_info("RTP session now started")
+        # asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
+        # asyncio.create_task(self.dtmf_test(length=4), name='pysip_5')
+
+    async def dtmf_test(self, length=1):
+        result = await self.dtmf_handler.get_dtmf(length)
+        print("DTMF test passed, received: ", result)
 
     async def audio_writer(self, session: RTPClient):
         while self.call_state != CallState.ANSWERED:
@@ -360,6 +396,45 @@ class TTS:
     def cleanup(self):
         os.remove(self.output_filename)
 
+
+class DTMFHandler:
+    def __init__(self) -> None:
+        self.queue: janus.Queue[str] = janus.Queue()
+        self.dtmf_queue = asyncio.Queue()
+        self.started_typing_event = asyncio.Event()
+
+    def dtmf_callback(self, code: str) -> None:
+        print("the value is put to the queue ", code)
+        self.queue.sync_q.put(code)
+
+    async def started_typing(self, event):
+        await self.started_typing_event.wait()
+        await event()
+
+    async def get_dtmf(self, length=1, finish_on_key=None) -> str:
+        dtmf_codes = []
+
+        if finish_on_key:
+            while True:
+                code = await self.queue.async_q.get()
+                self.queue.async_q.task_done()
+                if dtmf_codes and code == finish_on_key:
+                    break
+                dtmf_codes.append(code)
+                if not self.started_typing_event.is_set():
+                    self.started_typing_event.set()
+
+        else:
+            for _ in range(length):
+                code = await self.queue.async_q.get()
+                self.queue.async_q.task_done()
+                dtmf_codes.append(code)
+                print("i recived the value you put: ", code)
+                if not self.started_typing_event.is_set():
+                    self.started_typing_event.set()
+
+        self.started_typing_event.clear()
+        return ''.join(dtmf_codes)
 
 
 
