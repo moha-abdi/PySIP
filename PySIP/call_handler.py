@@ -1,4 +1,5 @@
 import asyncio
+from typing import List
 from wave import Wave_read
 
 from PySIP import _print_debug_info
@@ -87,6 +88,15 @@ class CallHandler:
         else:
             raise ValueError("No rtp_session, couldn't hangup")
 
+    @property
+    def dtmf_codes(self) -> List[str]:
+        """Contains all the dtmf codes from the start of the call."""
+        if self.call.dtmf_handler is not None:
+            return self.call.dtmf_handler.dtmf_codes
+        
+        else:
+            return []
+    
     async def send_handler(self):
         try:
             _print_debug_info("CallHandler has been initialized..")

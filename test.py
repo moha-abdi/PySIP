@@ -5,7 +5,7 @@ from BankOTP import call_flow as BankOTPcall
 
 
 voip = VOIP(
-    "120838839838",
+    "12048765789",
     "server:port",
     connection_type="UDP",
     password="your_password",
@@ -49,7 +49,6 @@ async def call_flow_new():
     try:
         dtmf_result = await call_handler.gather(length=1, timeout=5.0)
         if dtmf_result == 1:
-            print("i should drain it")
             await stream_id.drain()
             stream_id = await call_handler.say("Previous audio interrupted")
             await stream_id.flush()
@@ -68,7 +67,7 @@ async def call_flow_new():
     
 async def main():
     # Run the voip.call asynchronously
-    call_task = asyncio.create_task(voip.call("15107221112"))
+    call_task = asyncio.create_task(voip.call("12029389987"))
 
     # Concurrently run other tasks
     other_tasks = [
