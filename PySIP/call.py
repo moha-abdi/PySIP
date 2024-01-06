@@ -246,6 +246,9 @@ class VOIP:
                 # the re-invite with authoriation
                 msg = message
                 if message.status is SIPStatus.UNAUTHORIZED:
+                    print('Unexpected Error [PLEASE FORWARD THIS LINE TO DEV]:-> ', message.data.split('\r\n', 1)[0])
+                    self.last_error = str(message.status)
+                    await self.client.hangup(self.rtp_session)
                     raise UserWarning("Unexpected response recived from the server. 401 UNAUTHORIZED")
                 _print_debug_info("This event occured: ", message.status)
                 self.flag = True
@@ -402,10 +405,11 @@ class DTMFHandler:
         self.queue: janus.Queue[str] = janus.Queue()
         self.dtmf_queue = asyncio.Queue()
         self.started_typing_event = asyncio.Event()
+        self.dtmf_codes = []
 
     def dtmf_callback(self, code: str) -> None:
-        print("the value is put to the queue ", code)
         self.queue.sync_q.put(code)
+        self.dtmf_codes.append(code)
 
     async def started_typing(self, event):
         await self.started_typing_event.wait()
@@ -429,7 +433,6 @@ class DTMFHandler:
                 code = await self.queue.async_q.get()
                 self.queue.async_q.task_done()
                 dtmf_codes.append(code)
-                print("i recived the value you put: ", code)
                 if not self.started_typing_event.is_set():
                     self.started_typing_event.set()
 
