@@ -1,7 +1,7 @@
 import asyncio
 from enum import Enum
 from threading import Timer
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, assert_type
 import audioop
 import io
 import random
@@ -9,9 +9,12 @@ import socket
 import threading
 import time
 import warnings
+import numpy as np
 from pydub import AudioSegment
+from scipy.io import wavfile
 
 from PySIP.call_handler import AudioStream
+from PySIP.utils.inband_dtmf import dtmf_decode
 from . import _print_debug_info
 from .filters import PayloadType
 
@@ -248,6 +251,7 @@ class RTPClient:
             except Exception:
                 _print_debug_info(f"{assoc[m]} cannot be selected as an audio codec")
 
+        self.is_dtmf_supported = any(payload_type == PayloadType.EVENT for payload_type in assoc.values())
         if not self.preference:
             raise NoSupportedCodecsFound("No supported codecs found closing...")
 
@@ -267,6 +271,10 @@ class RTPClient:
         self.outTimestamp = random.randint(1, 10000)
         self.outSSRC = random.randint(1000, 65530)
 
+        self.buffer_duration = 2
+        self.buffer_size = int(self.buffer_duration * self.preference.rate)
+        self.buffer = np.array([], np.uint8)
+
     def start(self) -> None:
         self.sin = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.RTCP = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # RTCP socket
@@ -282,6 +290,11 @@ class RTPClient:
         t = Timer(0, self.trans)
         t.name = "RTP trans"
         t.start()
+        
+        if not self.is_dtmf_supported: # Incase DTMF RFC 2833 NOT SUPPORTED
+            d = Timer(0, self.detect_inband_dtmf)
+            d.name = "DTMF handler"
+            d.start()
 
     def RTCP_sender(self, bye=False):
         packet_type = 203 # Goodbye packet
@@ -444,6 +457,28 @@ class RTPClient:
     def trans_delay_reduction(self) -> float:
         reduction = TRANSMIT_DELAY_REDUCTION + 1
         return reduction if reduction else 1.0
+
+    def detect_inband_dtmf(self):
+        while self.NSD:
+            try:
+                packet = self.pmin.read()
+                data_array = np.frombuffer(packet, np.uint8)
+                self.buffer = np.concatenate((self.buffer, data_array))
+
+                if len(self.buffer) >= self.buffer_size:
+                    dtmf_digits = dtmf_decode(self.buffer, self.preference.rate)
+                    if dtmf_digits:
+                        for code in dtmf_digits:
+                            # _print_debug_info(str(code))
+                            if self.dtmf is not None:
+                                self.dtmf(str(code))
+
+                    self.buffer = np.array([], np.uint8)
+
+                time.sleep(0.01)
+
+            except BlockingIOError:
+                time.sleep(0.01)
 
     def parsePacket(self, packet: bytes) -> None:
         warnings.warn(
