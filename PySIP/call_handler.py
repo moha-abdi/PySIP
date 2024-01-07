@@ -96,7 +96,12 @@ class CallHandler:
         
         else:
             return []
-    
+
+    @property
+    def call_id(self):
+        """Retturns the call id of the current call"""
+        return self.call.client.call_id
+        
     async def send_handler(self):
         try:
             _print_debug_info("CallHandler has been initialized..")
