@@ -338,7 +338,7 @@ class Client:
             msg += f"Min-SE: 90\r\n"
             # msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
             msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
-            msg += f"User-Agent: PySIP-1.2.0\r\n"
+            msg += f"User-Agent: PySIP-1.3.0\r\n"
             # msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
@@ -444,8 +444,23 @@ class Client:
         msg += f"From: sip:{self.from_tag}@{self.server};tag={data_parsed.from_tag}\r\n"
         msg += f"To:sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
-        msg += f"CSeq: {data_parsed.cseq} BYE\r\n"
+        msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
         msg += f"Content-Length:  0\r\n\r\n"
+
+        return msg
+
+    def options_generator(self):
+        peer_ip, peer_port = self.writer.get_extra_info("peername")
+        _, port = self.writer.get_extra_info('sockname')
+
+        msg = f"OPTIONS sip:{peer_ip}:{self.port};transport={self.CTS.lower()} SIP/2.0\r\n"
+        msg += f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;branch={self.on_call_tags['branch']};alias\r\n"
+        msg += f"Max-Forwards: 70\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={self.invite_details.from_tag}\r\n"
+        msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
+        msg += f"Call-ID: {self.call_id}\r\n"
+        msg += f"CSeq: {self.register_counter.next()} OPTIONS\r\n"
+        msg += f"Content-Length: 0\r\n\r\n"
 
         return msg
 
@@ -503,6 +518,10 @@ class Client:
         while self.is_running:
             data = await self.reader.read(4000)
             await self.send_to_callbacks(data.decode())
+
+    async def ping(self):
+        options_message = self.options_generator()
+        await self.send(options_message)
 
     async def reregister(self, auth, msg, data):
         msg = self.build_register_message(auth, msg, data)

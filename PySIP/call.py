@@ -78,6 +78,7 @@ class VOIP:
         self.call_state = CallState.DAILING
         self.status = CallStatus.INACTIVE
         self.flag = False
+        self.call_made = False
         self.callee = None
         self.rtp_session = None
         self.last_error = None
@@ -158,6 +159,9 @@ class VOIP:
             if not self.flag:
                 return
 
+            if msg.data.startswith("OPTIONS"): # If we recieve PING then PONG incase of keep-alive required
+                options_ok = self.client.ok_generator(msg)
+                await self.client.send(options_ok)
             
             if msg.data.startswith("BYE") and msg.get_header("From").__contains__(str(self.callee)):
                 print('Callee hanged-up')
@@ -167,7 +171,7 @@ class VOIP:
                         self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer)
                     except:
                         pass
-                await self.client.hangup(self.rtp_session, callee_hanged_up=True, data_parsed=msg)
+                await self.client.hangup(self.rtp_session, callee_hanged_up=True, data_parsed=msg) 
 
         @self.client.on_message(filters=SipFilter.RESPONSE)
         async def error_handler(message: SipMessage):
@@ -238,6 +242,10 @@ class VOIP:
                 _print_debug_info("INVITED...")
                 print("CALL HAS BEEN ANSWERED..")
 
+                if not self.call_made:
+                    self.call_made = True
+                    await self.make_call(message)
+
             if self.status == CallStatus.REINVITING and message.status != \
             SIPStatus.TRYING and message.type == SIPMessageType.RESPONSE:
                 # If this statement happens then it will pass all the
@@ -270,21 +278,22 @@ class VOIP:
 
                     prack = self.client.prack_generator()
                     await self.client.send(prack)
-                    await self.make_call(msg)
+                    if self.last_body or msg.body:
+                        self.call_made = True
+                        self.call_state = CallState.RINGING
+                        await self.make_call(msg)
 
 
     async def make_call(self, message: SipMessage):
-        if self.call_state != CallState.DAILING:
-            return
-        self.call_state = CallState.RINGING
-
         body = self.last_body
         if message.body:
             body = message.body
 
         try:
             sdp = SipMessage.parse_sdp(body)
-        except Exception:
+        except Exception as e:
+            print(e)
+            print(body)
             print("Could not parse the provided SDP.. Closing...")
             return
 
@@ -296,8 +305,18 @@ class VOIP:
         self.rtp_session = rtp_session
         rtp_session.start()
         _print_debug_info("RTP session now started")
+        # asyncio.create_task(self.send_periodic_ping(16), name='pysip_7')
         # asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
         # asyncio.create_task(self.dtmf_test(length=4), name='pysip_5')
+
+    async def send_periodic_ping(self, delay):
+        while self.client.is_running:
+            if self.call_state is not CallState.ANSWERED:
+                await asyncio.sleep(0.1)
+                continue
+
+            await asyncio.sleep(delay)
+            await self.client.ping()
 
     async def dtmf_test(self, length=1):
         result = await self.dtmf_handler.get_dtmf(length)

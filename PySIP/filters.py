@@ -104,6 +104,9 @@ class SipFilter:
     OK: 'SipFilter' = MethodFilter('OK')
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Ok."""
+    OPTIONS: 'SipFilter' = MethodFilter('OPTIONS')
+    """This puts a filter that only filters the
+    :attr:`SipMessage.method` which returns Options."""
     BYE: 'SipFilter' = MethodFilter('BYE')
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Bye."""

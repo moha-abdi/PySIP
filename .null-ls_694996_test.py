@@ -5,10 +5,10 @@ from BankOTP import call_flow as BankOTPcall
 
 
 voip = VOIP(
-    "1289399839",
-    "server:port",
-    connection_type="UDP",
-    password="your_password",
+    "12048765789",
+    "",
+    connection_type="TLSv1",
+    password="etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==",
 )
 call_handler = CallHandler(voip)
 
@@ -67,7 +67,7 @@ async def call_flow_new():
     
 async def main():
     # Run the voip.call asynchronously
-    call_task = asyncio.create_task(voip.call("128348884844"))
+    call_task = asyncio.create_task(voip.call("252636321503"))
 
     # Concurrently run other tasks
     other_tasks = [
