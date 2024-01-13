@@ -291,9 +291,7 @@ class VOIP:
 
         try:
             sdp = SipMessage.parse_sdp(body)
-        except Exception as e:
-            print(e)
-            print(body)
+        except Exception as e: 
             print("Could not parse the provided SDP.. Closing...")
             return
 
