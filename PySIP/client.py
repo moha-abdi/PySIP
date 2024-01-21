@@ -266,7 +266,7 @@ class Client:
             branch_id = uuid.uuid4()
             call_id = self.call_id
             tag = self.generate_tag()
-            # generated_checksum = self.generate_password(method='REGISTER') # not required at all
+            generated_checksum = self.generate_password(method='REGISTER') # not required at all
 
             msg = (f"REGISTER sip:{self.server} SIP/2.0\r\n"
                 f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(branch_id).upper()};alias\r\n"
@@ -276,8 +276,8 @@ class Client:
                 f"To: <sip:{self.username}@{self.server}>\r\n"
                 f"Call-ID: {call_id}\r\n"
                 f"CSeq: {self.register_counter.next()} REGISTER\r\n"
-                # f"Client-Checksum: {generated_checksum.checksum}\r\n"
-                # f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
+                f"Client-Checksum: {generated_checksum.checksum}\r\n"
+                f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
                 f"Supported: outbound, path\r\n"
                 f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>;" +
                 f'reg-id=1;+sip.instance="<urn:uuid:{self.urn_UUID}>"\r\n'
@@ -321,7 +321,7 @@ class Client:
         else:
             tag = self.generate_tag()
             call_id = self.call_id
-            # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
+            generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
             msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
             msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
@@ -336,10 +336,10 @@ class Client:
             msg += f"Supported: replaces, 100rel, timer, norefersub\r\n"
             msg += f"Session-Expires: 1800\r\n"
             msg += f"Min-SE: 90\r\n"
-            # msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
+            msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
             msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
-            msg += f"User-Agent: PySIP-1.3.0\r\n"
-            # msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
+            msg += f"User-Agent: WAAFI-iOS-1.2.0\r\n"
+            msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
             body = SipMessage.generate_sdp(ip)
