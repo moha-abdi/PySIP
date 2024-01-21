@@ -156,6 +156,7 @@ class VOIP:
     def on_message(self):
         @self.client.on_message()
         async def request_handler(msg: SipMessage):
+            _print_debug_info(msg.data)
             if not self.flag:
                 return
 
