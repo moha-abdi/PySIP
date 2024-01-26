@@ -651,6 +651,8 @@ class Client:
 
         elif msg.status == SIPStatus(401) and msg.method == "INVITE":
             # This is the case when we have to send a reinvite
+            ack_message = self.ack_generator(msg.data)
+            await self.send(ack_message)
             await self.reinvite(True, self.last_invite_msg, msg)
             _print_debug_info("INVITING...")
 
