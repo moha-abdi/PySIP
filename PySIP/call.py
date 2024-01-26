@@ -151,12 +151,10 @@ class VOIP:
                 await asyncio.sleep(0.2)
                 await self.client.cleanup()
                 print("Main-loop completed.")
-
-
+ 
     def on_message(self):
         @self.client.on_message()
         async def request_handler(msg: SipMessage):
-            _print_debug_info(msg.data)
             if not self.flag:
                 return
 
@@ -209,19 +207,6 @@ class VOIP:
                 self.last_error = str(message.status)
                 await self.client.hangup(self.rtp_session)
 
-        @self.client.on_message(filters=SipFilter.REGISTER)
-        async def handle_register(message: SipMessage):
-            if message.type == SIPMessageType.MESSAGE:
-                if message.get_header("Authorization"):
-                    self.status = CallStatus.REREGISTERING
-                    _print_debug_info("RE-REGISTERING...")
-                else:
-                    self.status = CallStatus.REGISTERING
-                    _print_debug_info("REGISTERING...")
-
-            elif message.status == SIPStatus.OK:
-                self.status = CallStatus.REGISTERED
-                _print_debug_info("REGISTERED...")
 
         @self.client.on_message(filters=SipFilter.INVITE)
         async def handle_invite(message: SipMessage):
@@ -255,10 +240,8 @@ class VOIP:
                 # the re-invite with authoriation
                 msg = message
                 if message.status is SIPStatus.UNAUTHORIZED:
-                    print('Unexpected Error [PLEASE FORWARD THIS LINE TO DEV]:-> ', message.data.split('\r\n', 1)[0])
-                    self.last_error = str(message.status)
-                    await self.client.hangup(self.rtp_session)
-                    raise UserWarning("Unexpected response recived from the server. 401 UNAUTHORIZED")
+                    return
+
                 _print_debug_info("This event occured: ", message.status)
                 self.flag = True
                 if message.body: # Pre-set the body in-case the serve doesn't send body everytime
@@ -277,8 +260,10 @@ class VOIP:
                     self.client.on_call_tags["CSeq"] = msg.cseq
                     self.client.on_call_tags["RSeq"] = msg.rseq
 
-                    prack = self.client.prack_generator()
-                    await self.client.send(prack)
+                    if msg.get_header("Require") and "100rel" in msg.get_header("Require"):
+                        prack = self.client.prack_generator()
+                        await self.client.send(prack)
+
                     if self.last_body or msg.body:
                         self.call_made = True
                         self.call_state = CallState.RINGING

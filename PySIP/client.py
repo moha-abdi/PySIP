@@ -10,7 +10,7 @@ import hashlib
 import hmac
 import base64
 import configparser
-from typing import Callable, Dict, Literal
+from typing import Callable, Dict, List, Literal
 import warnings
 import traceback
 
@@ -96,11 +96,17 @@ class Client:
         self.dialog_id = None
         self.on_call_tags: Dict[Literal["From", "To", "CSeq", "RSeq", "branch"], str] = \
                             {"From": None, "To": None, "CSeq": None, "RSeq": None, "branch": None}
+        self.last_invite_msg = None
+        self.last_register_msg = None
 
     async def main(self):
         try:
             await self.connect()
-            await self.register()
+            asyncio.create_task(self.periodic_register(60), name='pysip_8')
+            await asyncio.sleep(0.02)
+            receive_task = asyncio.create_task(self.receive(), name='pysip_9')
+            await self.invite()
+            await receive_task
 
         except Exception as e:
             print("Error: ", e)
@@ -109,6 +115,11 @@ class Client:
 
         finally:
             return
+
+    async def periodic_register(self, delay: float):
+        while True:
+            await self.register()
+            await asyncio.sleep(delay)
 
     def generate_password(self, method=None, username=None):
         if method:
@@ -229,8 +240,7 @@ class Client:
     def build_register_message(self, auth=False, msg=None, data=None):
 
         if auth:
-            received_message = SipMessage(data)
-            received_message.parse()
+            received_message: SipMessage = data
             nonce = received_message.nonce
             realm = received_message.realm
             ip = received_message.public_ip
@@ -266,7 +276,7 @@ class Client:
             branch_id = uuid.uuid4()
             call_id = self.call_id
             tag = self.generate_tag()
-            generated_checksum = self.generate_password(method='REGISTER') # not required at all
+            # generated_checksum = self.generate_password(method='REGISTER') # not required at all
 
             msg = (f"REGISTER sip:{self.server} SIP/2.0\r\n"
                 f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(branch_id).upper()};alias\r\n"
@@ -276,8 +286,8 @@ class Client:
                 f"To: <sip:{self.username}@{self.server}>\r\n"
                 f"Call-ID: {call_id}\r\n"
                 f"CSeq: {self.register_counter.next()} REGISTER\r\n"
-                f"Client-Checksum: {generated_checksum.checksum}\r\n"
-                f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
+                # f"Client-Checksum: {generated_checksum.checksum}\r\n"
+                # f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
                 f"Supported: outbound, path\r\n"
                 f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>;" +
                 f'reg-id=1;+sip.instance="<urn:uuid:{self.urn_UUID}>"\r\n'
@@ -293,8 +303,7 @@ class Client:
         ip = self.my_puplic_ip
 
         if auth:
-            received_message = SipMessage(data)
-            received_message.parse()
+            received_message: SipMessage = data
             nonce = received_message.nonce
             realm = received_message.realm
             ip = received_message.public_ip
@@ -321,7 +330,7 @@ class Client:
         else:
             tag = self.generate_tag()
             call_id = self.call_id
-            generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
+            # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
             msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
             msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
@@ -336,10 +345,10 @@ class Client:
             msg += f"Supported: replaces, 100rel, timer, norefersub\r\n"
             msg += f"Session-Expires: 1800\r\n"
             msg += f"Min-SE: 90\r\n"
-            msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
+            # msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
             msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
             msg += f"User-Agent: WAAFI-iOS-1.2.0\r\n"
-            msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
+            # msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
             body = SipMessage.generate_sdp(ip)
@@ -516,87 +525,67 @@ class Client:
 
     async def receive(self):
         while self.is_running:
-            data = await self.reader.read(4000)
-            await self.send_to_callbacks(data.decode())
+            data = await self.reader.read(4096)
+            sip_messages = self.extract_sip_messages(data)
+            # print(f"Received {len(sip_messages)} messages")
+
+            for sip_message_data in sip_messages:
+                await self.send_to_callbacks(sip_message_data.decode())
 
     async def ping(self):
         options_message = self.options_generator()
         await self.send(options_message)
 
+    def extract_sip_messages(self, data: bytes) -> List[bytes]:
+        messages = []
+        start = 0 
+
+        while start < len(data):
+            end_of_headers = data.find(b'\r\n\r\n', start)
+
+            if end_of_headers == -1:
+                break
+
+            headers = data[start:end_of_headers].decode()
+            content_length = [int(line.split(':')[1].strip()) for line in headers.split("\r\n") if line.startswith('Content-Length:')]
+
+            total_length = end_of_headers + 4 + content_length[0] # 4 for the "\r\n\r\n"
+            if total_length > len(data):
+                break
+
+            message = data[start:total_length]
+            messages.append(message)
+
+            start = total_length
+
+        return messages
+
+
     async def reregister(self, auth, msg, data):
         msg = self.build_register_message(auth, msg, data)
 
         await self.send(msg)
-
-        while self.is_running:
-            try:
-                data = await asyncio.wait_for(self.reader.read(4000), timeout=5)
-                await self.send_to_callbacks(data.decode())
-                await self.invite()
-                break
-            except asyncio.TimeoutError:
-                _print_debug_info("No response received, resending re-register")
-                # await self.send(msg)
+        return
 
     async def register(self):
         msg = self.build_register_message()
+        self.last_register_msg = msg
 
         await self.send(msg)
+        return
 
-        while self.is_running:
-            try:
-                data = await asyncio.wait_for(self.reader.read(4000), timeout=5)
-                await self.send_to_callbacks(data.decode())
-                await self.reregister(True, msg, data.decode())
-                break
-            except asyncio.TimeoutError:
-                _print_debug_info("No response received, resending register")
-                # await self.send(msg)
 
     async def reinvite(self, auth, msg, data):
         reinvite_msg = self.build_invite_message(auth, msg, data)
-
         await self.send(reinvite_msg)
-        while self.is_running:
-            try:
-                data = await asyncio.wait_for(self.reader.read(4000), timeout=5)
-                await self.send_to_callbacks(data.decode())
-                await asyncio.create_task(self.receive(), name='pysip_2')
-                break
-            except asyncio.TimeoutError:
-                _print_debug_info("No response received, resending reinvite")
-                # await self.send(msg)
-
+        return
 
     async def invite(self):
         msg = self.build_invite_message()
+        self.last_invite_msg = msg
 
         await self.send(msg)
-
-        while self.is_running:
-            try:
-                data = await asyncio.wait_for(self.reader.read(4000), timeout=4)
-                data = data.decode()
-
-                responses = data.split("\r\n\r\n")
-
-                for response in responses:
-                    if len(response) == 0:
-                        continue
-
-                    data_parsed = SipMessage(response)
-                    data_parsed.parse()
-
-                    if data_parsed.status == SIPStatus(401):
-                        await self.send_to_callbacks(response)
-                        await self.reinvite(True, msg, response)
-                        break
-
-            except asyncio.CancelledError:
-                break
-
-            except asyncio.TimeoutError:
-                _print_debug_info("Timeout occured on invite, will try ot resend.")
+        return
 
     async def hangup(self, rtp_session = None, callee_hanged_up = False, data_parsed = None):
         if not self.call_state() is CallState.ANSWERED:
@@ -654,4 +643,21 @@ class Client:
         # and it's onlt for developer's usage. unlike other handlers
         # it has no filters for now.
         # print(msg.data)
-        pass
+        await asyncio.sleep(0.001)
+        if msg.status == SIPStatus(401) and msg.method == "REGISTER":
+            # This is the case when we have to send a retegister
+            await self.reregister(True, self.last_register_msg, msg)
+            _print_debug_info("REGISTERING...")
+
+        elif msg.status == SIPStatus(401) and msg.method == "INVITE":
+            # This is the case when we have to send a reinvite
+            await self.reinvite(True, self.last_invite_msg, msg)
+            _print_debug_info("INVITING...")
+
+        elif msg.status == SIPStatus(200) and msg.method == "REGISTER":
+            # This is when we receive the response for the register
+            _print_debug_info("RE-REGISTERED...")
+
+        elif msg.status == SIPStatus(200) and msg.method == "INVITE":
+            # This is when we receive the response for the invite
+            _print_debug_info("RE-INVITED...")

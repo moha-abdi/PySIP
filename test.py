@@ -11,6 +11,14 @@ voip = VOIP(
     password="etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==",
 )
 
+voip = VOIP(
+    username="michel2",
+    route="109.207.170.23:5060",
+    connection_type="UDP",
+    from_tag="18005604417",
+    password="pass1234",
+)
+
 call_handler = CallHandler(voip)
 
 
@@ -68,7 +76,7 @@ async def call_flow_new():
     
 async def main():
     # Run the voip.call asynchronously
-    call_task = asyncio.create_task(voip.call("1122993933993"))
+    call_task = asyncio.create_task(voip.call("15107221112"))
 
     # Concurrently run other tasks
     other_tasks = [
