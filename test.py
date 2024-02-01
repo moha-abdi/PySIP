@@ -87,8 +87,7 @@ async def main():
     await asyncio.gather(call_task, call_handler_task, send_handler, return_exceptions=True)
 
     if voip.received_bytes:
-        print("Recorded audio saved to recored.mp3")
-async def moha():
-    pass
+        print(f"Recorded audio saved to {call_handler.call_id}.mp3")
+
 
 asyncio.run(main())

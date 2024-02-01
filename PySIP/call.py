@@ -181,7 +181,7 @@ class VOIP:
                 self.last_error = "Callee hanged-up"
                 if self.rtp_session:
                     try:
-                        self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer)
+                        self.received_bytes = self.bytes_to_audio(self.rtp_session.pmin.buffer, self.client.call_id)
                     except:
                         pass
                 await self.client.hangup(self.rtp_session, callee_hanged_up=True, data_parsed=msg) 
@@ -362,14 +362,14 @@ class VOIP:
 
         sleep_time = self.get_audio_duration(audio_file)
         await asyncio.sleep(sleep_time + 4)
-        self.received_bytes = self.bytes_to_audio(session.pmin.buffer)
+        self.received_bytes = self.bytes_to_audio(session.pmin.buffer, self.client.call_id)
         os.remove('recorded.wav')
         self.last_error = "Call ended"
         await self.client.hangup(session)
 
         await asyncio.sleep(1)
 
-    def bytes_to_audio(self, buffer):
+    def bytes_to_audio(self, buffer, file_name: str):
         with wave.open('recorded.wav', 'wb') as file:
             file.setnchannels(1) # mono
             file.setsampwidth(1)
@@ -379,7 +379,7 @@ class VOIP:
             # wav to mp3
             audio: AudioSegment = AudioSegment.from_wav('recorded.wav')
             audio.set_sample_width(2)
-            audio.export('recorded.mp3')
+            audio.export(f'{file_name}.mp3')
 
             return True
 
