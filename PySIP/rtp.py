@@ -259,6 +259,7 @@ class RTPClient:
         self.inPort = inPort
         self.outIP = outIP
         self.outPort = outPort
+        _print_debug_info(f"Sending from: {self.inIP}:{self.inPort}\nsending to: {self.outIP}:{self.outPort}")
 
         self.dtmf = dtmf
         self.loop = loop

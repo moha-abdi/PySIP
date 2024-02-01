@@ -1,5 +1,6 @@
 from enum import IntEnum, Enum
 import random
+import re
 from typing import Any, Literal, Union
 
 __all__ = [
@@ -101,6 +102,12 @@ class SipFilter:
     ACK: 'SipFilter' = MethodFilter('ACK')
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Ack."""
+    REFER: 'SipFilter' = MethodFilter('REFER')
+    """This puts a filter that only filters the
+    :attr:`SipMessage.method` which returns Refer."""
+    NOTIFY: 'SipFilter' = MethodFilter('NOTIFY')
+    """This puts a filter that only filters the
+    :attr:`SipMessage.method` which returns Notify."""
     OK: 'SipFilter' = MethodFilter('OK')
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Ok."""
@@ -579,17 +586,15 @@ class SipMessage:
         self.cseq = int(cseq.split(' ')[0])
         self.method = cseq.split(' ')[1]
 
+        # From tag
         from_header = self.get_header('From')
-        if ';' in from_header:
-            self.from_tag = from_header.split(';')[1].split('=')[1]
-        else:
-            self.from_tag = None
+        from_tag_match = re.search(r';tag=([^;]+)', from_header)
+        self.from_tag = from_tag_match.group(1) if from_tag_match else None
 
+        # To tag
         to_header = self.get_header('To')
-        if ';' in to_header:
-            self.to_tag = to_header.split(';')[1].split('=')[1]
-        else:
-            self.to_tag = None
+        to_tag_match = re.search(r';tag=([^;]+)', to_header)
+        self.to_tag = to_tag_match.group(1) if to_tag_match else None
 
         self.call_id = self.get_header('Call-ID')
 

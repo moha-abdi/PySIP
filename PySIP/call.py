@@ -1,4 +1,5 @@
 import asyncio
+from collections import namedtuple
 from math import prod
 import signal
 from typing import Literal
@@ -14,6 +15,7 @@ from .client import Client, SipFilter
 from enum import Enum
 from .rtp import PayloadType, RTPClient, TransmitType
 from . import _print_debug_info
+from .exceptions import SIPTransferException
 
 __all__ = [
     'CallState',
@@ -84,6 +86,8 @@ class VOIP:
         self.last_error = None
         self.received_bytes = False
         self.last_body = None
+        self.refer_future = asyncio.Future()
+        self.signal_task = None
         self.dtmf_handler: DTMFHandler = None
 
         self.client = Client(
@@ -97,6 +101,7 @@ class VOIP:
             self.token
         )
         self.client.call_state = lambda: self.call_state
+        self.client.set_call_state = lambda x: setattr(self, 'call_state', x)
         self.on_message()
 
     async def call(self, callee: str | int, audio_file: str = None, tts: bool = False,
@@ -136,22 +141,31 @@ class VOIP:
         self.client.callee = self.callee
         signal.signal(signal.SIGINT, self.signal_handler)
 
-        if asyncio.get_event_loop().is_running():
-            try:
-                await asyncio.create_task(self.client.main(), name='pysip_1')
-            finally:
-                await asyncio.sleep(0.2)
-                await self.client.cleanup()
-                print("Main-loop completed.")
-                
-        else:
-            try:
-                asyncio.run(self.client.main())
-            finally:
-                await asyncio.sleep(0.2)
-                await self.client.cleanup()
-                print("Main-loop completed.")
- 
+        main_task = asyncio.create_task(self.client.main(), name='pysip_1')
+        self.client.pysip_tasks.append(main_task)
+        
+        try:
+            await main_task
+        except asyncio.CancelledError:
+            if main_task.done():
+                pass
+            # Checking if the task requested to cancel is the current task
+            if asyncio.current_task() and asyncio.current_task().cancelling() > 0:
+                # If so I raised the cancelation to be propagated UP
+                raise
+        finally:
+            if self.signal_task:
+                try:
+                    await self.signal_task
+                except asyncio.CancelledError:
+                    if self.signal_task.done():
+                        pass
+                    if asyncio.current_task() and asyncio.current_task().cancelling() > 0:
+                        raise
+            await asyncio.sleep(0.1)
+            await self.client.cleanup()
+            print("Main-loop completed.")            
+         
     def on_message(self):
         @self.client.on_message()
         async def request_handler(msg: SipMessage):
@@ -177,7 +191,7 @@ class VOIP:
             if not message.status:
                 return
 
-            if message.method in ['PRACK', 'ACK']:
+            if message.method in ['PRACK', 'ACK', 'REFER']:
                 return
 
             if str(message.status).startswith('4') and message.status != SIPStatus.UNAUTHORIZED:
@@ -185,8 +199,8 @@ class VOIP:
                 Handling client-side errors with status code 4xx
                 """
                 _print_debug_info('Client-side error, ending the call...')
-                print('Error: ', message.status.description)
-                self.last_error = str(message.status)
+                print('Error: ', message.status.description or message.data.split('\r\n', 1)[0])
+                self.last_error = str(message.status) or message.data.split('\r\n', 1)[0]
                 await self.client.hangup(self.rtp_session)
 
             elif str(message.status).startswith('5'):
@@ -194,8 +208,8 @@ class VOIP:
                 Handling server-side errors with status code 5xx
                 """
                 _print_debug_info('Server-side error, ending the call...')
-                print('Error: ', message.status.description)
-                self.last_error = str(message.status)
+                print('Error: ', message.status.description or message.data.split('\r\n', 1)[0])
+                self.last_error = str(message.status) or message.data.split('\r\n', 1)[0]
                 await self.client.hangup(self.rtp_session)
 
             elif str(message.status).startswith('6'):
@@ -203,8 +217,8 @@ class VOIP:
                 Handling Global errors with status code 6xx
                 """
                 _print_debug_info('Global error, ending the call...')
-                print('Error: ', message.status.description)
-                self.last_error = str(message.status)
+                print('Error: ', message.status.description or message.data.split('\r\n', 1)[0])
+                self.last_error = str(message.status) or message.data.split('\r\n', 1)[0]
                 await self.client.hangup(self.rtp_session)
 
 
@@ -241,6 +255,8 @@ class VOIP:
                 msg = message
                 if message.status is SIPStatus.UNAUTHORIZED:
                     return
+                if str(message.status).startswith(('4', '5', '6')):
+                    return # Instead of just preventing the 401 only, we do it for all errors
 
                 _print_debug_info("This event occured: ", message.status)
                 self.flag = True
@@ -268,6 +284,32 @@ class VOIP:
                         self.call_made = True
                         self.call_state = CallState.RINGING
                         await self.make_call(msg)
+
+        @self.client.on_message(filters=SipFilter.REFER)
+        async def handle_refer(msg: SipMessage):
+            if not msg.status:
+                return
+
+            if str(msg.status).startswith('2'):
+                """handle success"""
+                SIPTransferResult = namedtuple('SIPTransferResult', ['code', 'description'])
+                if not self.refer_future.done():
+                    description = "success"
+                    self.refer_future.set_result(SIPTransferResult(int(msg.status), description))
+            
+            elif str(msg.status).startswith('4'):
+                """handle error client side"""
+                if not self.refer_future.done():
+                    description = "client error"
+                    self.refer_future.set_exception(SIPTransferException(int(msg.status), description))
+
+            elif str(msg.status).startswith(('5', '6')):
+                """handle other errors"""
+                if not self.refer_future.done():
+                    description = "server error"
+                    self.refer_future.set_exception(SIPTransferException(int(msg.status), description))
+
+
 
 
     async def make_call(self, message: SipMessage):
@@ -365,7 +407,8 @@ class VOIP:
 
     def signal_handler(self, sig, frame):
         print("\nCtrl+C detected. Sending CANCEL request and exiting...")
-        asyncio.create_task(self.client.hangup(self.rtp_session), name='pysip_4')
+        self.signal_task = asyncio.create_task(self.client.hangup(self.rtp_session), name='pysip_4')
+        self.client.pysip_tasks.append(self.signal_task)
 
 class TTS:
     def __init__(

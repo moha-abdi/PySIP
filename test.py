@@ -1,15 +1,8 @@
 from PySIP.call import VOIP
 from PySIP.call_handler import CallHandler
 import asyncio
-from BankOTP import call_flow as BankOTPcall
+from scripts.BankOTP import call_flow as BankOTPcall
 
-
-voip = VOIP(
-    "12035473096",
-    "talk.waafi.com:2382",
-    connection_type="TLSv1",
-    password="etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==",
-)
 
 voip = VOIP(
     username="michel2",
@@ -18,6 +11,13 @@ voip = VOIP(
     from_tag="18005604417",
     password="pass1234",
 )
+
+# voip = VOIP(
+#     "12035473096",
+#     "talk.waafi.com:2382",
+#     connection_type="TLSv1",
+#     password="etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==",
+# )
 
 call_handler = CallHandler(voip)
 
@@ -76,16 +76,15 @@ async def call_flow_new():
     
 async def main():
     # Run the voip.call asynchronously
+    asyncio.get_event_loop().set_debug(False)
     call_task = asyncio.create_task(voip.call("15107221112"))
 
     # Concurrently run other tasks
-    other_tasks = [
-        asyncio.create_task(BankOTPcall(call_handler)),
-        asyncio.create_task(call_handler.send_handler()),
-    ]
+    call_handler_task = asyncio.create_task(BankOTPcall(call_handler))
+    send_handler = asyncio.create_task(call_handler.send_handler())
 
-    # Wait for all tasks to complete
-    await asyncio.gather(call_task, *other_tasks)
+    # Wait for all tasks to complete 
+    await asyncio.gather(call_task, call_handler_task, send_handler, return_exceptions=True)
 
     if voip.received_bytes:
         print("Recorded audio saved to recored.mp3")

@@ -78,6 +78,7 @@ class Client:
 
         self.is_running = False
         self.call_state: Callable[[], CallState] = None
+        self.set_call_state: Callable[[CallState], None] = None
         self.CTS = 'TLS' if 'TLS' in connection_type else connection_type
         self.connection_type = ConnectionType(connection_type)
         self.token = token
@@ -98,15 +99,25 @@ class Client:
                             {"From": None, "To": None, "CSeq": None, "RSeq": None, "branch": None}
         self.last_invite_msg = None
         self.last_register_msg = None
+        self.pysip_tasks = []
 
     async def main(self):
+        register_task = None
+        receive_task = None
         try:
             await self.connect()
-            asyncio.create_task(self.periodic_register(60), name='pysip_8')
+            register_task = asyncio.create_task(self.periodic_register(60), name='pysip_8')
             await asyncio.sleep(0.02)
             receive_task = asyncio.create_task(self.receive(), name='pysip_9')
             await self.invite()
-            await receive_task
+
+            try:
+                await receive_task
+            except asyncio.CancelledError:
+                if receive_task.done():
+                    pass
+                if asyncio.current_task() and asyncio.current_task().cancelling() > 0:
+                    raise
 
         except Exception as e:
             print("Error: ", e)
@@ -114,10 +125,23 @@ class Client:
             return
 
         finally:
-            return
+            
+            if register_task and not register_task.done():
+                register_task.cancel()
+                try:
+                    await register_task
+                except asyncio.CancelledError:
+                    pass  # Task cancellation is expected
+
+            if receive_task and not receive_task.done():
+                receive_task.cancel()
+                try:
+                    await receive_task
+                except asyncio.CancelledError:
+                    pass  # Task cancellation is expected
 
     async def periodic_register(self, delay: float):
-        while True:
+        while self.is_running:
             await self.register()
             await asyncio.sleep(delay)
 
@@ -236,6 +260,8 @@ class Client:
             # Handle the error as needed
         except Exception as e:
             print(f"Unexpected error: {e}")
+        except asyncio.CancelledError:
+            print("Cancelled task")
 
     def build_register_message(self, auth=False, msg=None, data=None):
 
@@ -330,7 +356,7 @@ class Client:
         else:
             tag = self.generate_tag()
             call_id = self.call_id
-            # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
+            generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
             msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
             msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
@@ -346,8 +372,8 @@ class Client:
             msg += f"Session-Expires: 1800\r\n"
             msg += f"Min-SE: 90\r\n"
             # msg += f"Client-Checksum: {generated_checksum.checksum}\r\n"
-            msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
-            msg += f"User-Agent: WAAFI-iOS-1.2.0\r\n"
+            # msg += 'Location:{"MNC":"01","MCC":"637"}\r\n'
+            msg += f"User-Agent: PySIP-1.2.0\r\n"
             # msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
@@ -445,16 +471,20 @@ class Client:
     def ok_generator(self, data_parsed: SipMessage):
         peer_ip, peer_port = self.writer.get_extra_info("peername")
         _, port = self.writer.get_extra_info('sockname')
+        from_tag = ";tag=" + data_parsed.from_tag if data_parsed.from_tag else ""
+        to_tag = ";tag=" + data_parsed.to_tag if data_parsed.to_tag else ""
 
         msg = f"SIP/2.0 200 OK\r\n"
         msg += (f"Via: SIP/2.0/{self.CTS} {self.my_puplic_ip}:{port};rport;" +
-                f"branch={data_parsed.branch};alias\r\n")
-        msg += f"Max-Forwards: 70\r\n"
-        msg += f"From: sip:{self.from_tag}@{self.server};tag={data_parsed.from_tag}\r\n"
-        msg += f"To:sip:{self.callee}@{self.server};tag={data_parsed.to_tag}\r\n"
-        msg += f"Call-ID: {self.call_id}\r\n"
+                f"branch={data_parsed.branch}\r\n")
+        msg += f"From: <sip:{self.from_tag}@{self.server}>{from_tag}\r\n"
+        msg += f"To: <sip:{self.callee}@{self.server}>{to_tag}\r\n"
+        msg += f"Call-ID: {data_parsed.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
-        msg += f"Content-Length:  0\r\n\r\n"
+        msg += f"Contact: <sip:{self.username}@{self.my_puplic_ip}:{port};transport={self.CTS.upper()};ob>\r\n"
+        msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
+        msg += f"Supported: replaces, 100rel, timer\r\n"
+        msg += f"Content-Length: 0\r\n\r\n"
 
         return msg
 
@@ -470,6 +500,30 @@ class Client:
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {self.register_counter.next()} OPTIONS\r\n"
         msg += f"Content-Length: 0\r\n\r\n"
+
+        return msg
+
+    def refer_generator(self, refer_to_callee):
+        _, port = self.writer.get_extra_info('sockname')
+        ip = self.my_puplic_ip
+
+        # the refer-to header - the sip uri of the person to refer to
+        refer_to = f"sip:{refer_to_callee}@{self.server};transport={self.CTS}"
+
+        # referred-by header - similar to the from header in invite
+        referred_by = f"sip:{self.from_tag}@{self.server}"
+
+        msg = f"refer sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} sip/2.0\r\n"
+        msg += f"via: sip/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"max-forwards: 70\r\n"
+        msg += f"from: sip:{self.from_tag}@{self.server};tag={self.generate_tag()}\r\n"
+        msg += f"to: sip:{self.callee}@{self.server}\r\n"
+        msg += f"call-id: {self.call_id}\r\n"
+        msg += f"cseq: {self.register_counter.next()} refer\r\n"
+        msg += f"refer-to: {refer_to}\r\n"
+        msg += f"referred-by: {referred_by}\r\n"
+        msg += f"contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
+        msg += f"content-length: 0\r\n\r\n"
 
         return msg
 
@@ -590,20 +644,20 @@ class Client:
     async def hangup(self, rtp_session = None, callee_hanged_up = False, data_parsed = None):
         if not self.call_state() is CallState.ANSWERED:
             warnings.warn('WARNING! There is no call in-progress trying to cancel instead..')
+        if self.call_state() is CallState.ENDED:
+            _print_debug_info("Call is hanged up already")
+            return
+        self.set_call_state(CallState.ENDED)
 
         await self.cancel(callee_hanged_up, data_parsed)
         if rtp_session:
             rtp_session.stop()
-        await asyncio.sleep(0.2)
 
     async def cancel(self, callee_hanged_up, data_parsed):
         if not self.invite_details:
             warnings.warn('WARNING! There is no invite request to cancel')
-            await asyncio.sleep(0.1)
             self.is_running = False
-            await asyncio.sleep(0.2)
 
-            await self.cleanup()
             return
 
         if self.call_state() is CallState.ANSWERED:
@@ -615,25 +669,34 @@ class Client:
             msg = self.cancel_generator()
 
         await self.send(msg)
-        await asyncio.sleep(0.1)
         self.is_running = False
         _print_debug_info("Client stopped")
 
 
     async def cleanup(self):
+        # Close connections
+        try:
+            if self.connection_type == ConnectionType.UDP:
+                if self.writer and not self.writer.protocol.transport.is_closing():
+                    self.writer.protocol.transport.close()
+            else:
+                if self.writer and not self.writer.is_closing():
+                    self.writer.close()
+                    await self.writer.wait_closed()
+                    pass
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
+            # Cancel all tasks
 
-        cancel_all = False
-        for task in asyncio.all_tasks():
-            if task.get_name() == 'pysip_4' and task._state == 'PENDING':
-                cancel_all = True
-                break
+        for task in self.pysip_tasks:
+            if task.done() or task.cancelled():
+                continue
+            task.cancel()
 
-        if cancel_all:
-            [task.cancel() for task in asyncio.all_tasks() if task != asyncio.current_task()]
+        # Await task completion/cancellation
+        await asyncio.gather(*self.pysip_tasks, return_exceptions=True)
 
-        else:
-            [task.cancel() for task in asyncio.all_tasks()
-             if task.get_name().startswith('pysip')]
+        _print_debug_info("Cleanup completed")   
 
     async def message_handler(self, msg: SipMessage):
         # This is the main message handler inside the class
