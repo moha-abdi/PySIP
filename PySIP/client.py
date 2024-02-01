@@ -88,7 +88,7 @@ class Client:
         self.urn_uuid = self.generate_urn_uuid()
         self.call_id = self.gen_call_id()
         self.on_message_callbacks = [self.message_handler]
-        self.my_private_ip = socket.gethostbyname(socket.gethostname())
+        self.my_private_ip = self.get_local_ip()
         self.my_puplic_ip = self.get_public_ip()
         self.register_counter = Counter(29809)
         self.rseq_counter = Counter()
@@ -172,6 +172,22 @@ class Client:
             external_ip = None
 
         return external_ip
+
+    def get_local_ip(self):
+        try:
+            # Create a socket object
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Connect the socket to a remote server
+            # Here, '8.8.8.8' is the Google Public DNS, and '80' is the port number.
+            s.connect(("8.8.8.8", 80))
+            # Get the local IP address the socket is connected with
+            ip = s.getsockname()[0]
+            # Close the socket
+            s.close()
+        except Exception as e:
+            ip = "Error: " + str(e)
+            _print_debug_info(ip)
+        return ip
 
     def gather_salts(self, target_salt: str) -> str:
         config = configparser.ConfigParser()
