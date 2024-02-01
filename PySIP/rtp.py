@@ -259,6 +259,7 @@ class RTPClient:
         self.inPort = inPort
         self.outIP = outIP
         self.outPort = outPort
+        _print_debug_info(f"Sending from: {self.inIP}:{self.inPort}\nsending to: {self.outIP}:{self.outPort}")
 
         self.dtmf = dtmf
         self.loop = loop
@@ -469,7 +470,7 @@ class RTPClient:
                     dtmf_digits = dtmf_decode(self.buffer, self.preference.rate)
                     if dtmf_digits:
                         for code in dtmf_digits:
-                            # _print_debug_info(str(code))
+                            _print_debug_info(str(code))
                             if self.dtmf is not None:
                                 self.dtmf(str(code))
 

@@ -31,3 +31,4 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.null-ls_*.py

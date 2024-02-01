@@ -6,6 +6,7 @@ from PySIP import _print_debug_info
 from .filters import CallState
 from .CustomCommuicate import CommWithPauses
 from .utils.async_utils import wait_for
+from .exceptions import SIPTransferException
 
 
 class CallHandler:
@@ -15,14 +16,23 @@ class CallHandler:
         self.previous_stream: AudioStream = None
 
     async def say(self, text: str):
-        self.audio_bytes = await CommWithPauses(text=text).generate_audio(text=text)
-        self.audio_stream = AudioStream(self.audio_bytes, self)
-        await self.audio_queue.put(("audio", self.audio_stream))
+        if not asyncio.current_task() in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
 
-        return self.audio_stream
+        try:
+            self.audio_bytes = await CommWithPauses(text=text).generate_audio(text=text)
+            self.audio_stream = AudioStream(self.audio_bytes, self)
+            await self.audio_queue.put(("audio", self.audio_stream))
+            return self.audio_stream
+
+        except Exception as e:
+            pass
 
     async def play(self, input_audio: bytes):
         """Simple method to play an audio in call"""
+        if not asyncio.current_task() in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
+
         self.audio_stream = AudioStream(input_audio)
         await self.audio_queue.put(AudioStream(input_audio))
 
@@ -33,14 +43,28 @@ class CallHandler:
     ) -> int:
         """This method gathers a dtmf tone with the specified
         length and then returns when done"""
+        if not asyncio.current_task() in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
+
         dtmf_future = asyncio.Future()
         dtmf_future.__setattr__("length", length)
         dtmf_future.__setattr__("timeout", timeout)
         dtmf_future.__setattr__("finish_on_key", finish_on_key)
         await self.audio_queue.put(("dtmf", dtmf_future))
 
-        result = await dtmf_future
-        return int(result)
+        try:
+            result = await dtmf_future
+            return int(result)
+        except asyncio.CancelledError:
+            if not dtmf_future.done():
+                dtmf_future.cancel()
+                try:
+                    await dtmf_future
+                except asyncio.CancelledError:
+                    pass
+                
+            if asyncio.current_task().cancelling() > 0:
+                raise
 
     async def gather_and_say(
         self,
@@ -53,6 +77,9 @@ class CallHandler:
     ):
         """This method waits for dtmf keys and then if received
         it instantly send it"""
+        if not asyncio.current_task() in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
+
         dtmf_result = None
         for _ in range(loop):
             try:
@@ -77,13 +104,45 @@ class CallHandler:
 
         return dtmf_result
 
+    async def transfer_to(self, to: str | int):
+        """
+        Transfer the call that is currently on-going to the specified `to`
+        Args:
+            to (str|int): The target phone number to transfer the call to.
+        """
+        if not asyncio.current_task() in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
+
+        self.refer_future: asyncio.Future = self.call.refer_future
+        self.refer_message = self.call.client.refer_generator(to)
+        await self.call.client.send(self.refer_message)
+
+        try:
+            result = await asyncio.wait_for(self.refer_future, 5)
+            return (result, None)
+        
+        except asyncio.TimeoutError:
+            return (None, "Timed out")
+
+        except SIPTransferException as e:
+            return (None, e.description)
+
+        except Exception:
+            return (None, "Unknown error")
+        
+
     async def sleep(self, delay: float):
+        if not asyncio.current_task() in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
+
         await self.audio_queue.put(("sleep", delay))
 
     async def hangup(self):
+        if not asyncio.current_task() in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
+
         if self.call.rtp_session:
             await self.call.client.hangup(self.call.rtp_session)
-            await self.call.client.cleanup()
 
         else:
             raise ValueError("No rtp_session, couldn't hangup")
@@ -96,9 +155,15 @@ class CallHandler:
         
         else:
             return []
-    
+
+    @property
+    def call_id(self):
+        """Retturns the call id of the current call"""
+        return self.call.client.call_id
+        
     async def send_handler(self):
         try:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
             _print_debug_info("CallHandler has been initialized..")
             empty_queue_count = 0  # Counter for consecutive empty queue checks
 
@@ -172,7 +237,12 @@ class CallHandler:
                         )
                         break
 
+                except asyncio.CancelledError:
+                    # _print_debug_info("Subtask has been cancelled")
+                    break
+
         except asyncio.CancelledError:
+            _print_debug_info("The send handler task has been cancelled")
             pass
 
 
