@@ -280,7 +280,7 @@ class VOIP:
                         prack = self.client.prack_generator()
                         await self.client.send(prack)
 
-                    if self.last_body or msg.body:
+                    if (self.last_body or msg.body) and not self.call_made:
                         self.call_made = True
                         self.call_state = CallState.RINGING
                         await self.make_call(msg)
@@ -313,6 +313,7 @@ class VOIP:
 
 
     async def make_call(self, message: SipMessage):
+        print("I am called")
         body = self.last_body
         if message.body:
             body = message.body

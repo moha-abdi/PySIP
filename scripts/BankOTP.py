@@ -6,6 +6,9 @@ async def call_flow(call_handler: CallHandler):
     
     # await call_handler.sleep(4)
     await call_handler.say("Weclome to PayPal fraud prevention line")
+    dtm = await call_handler.gather_and_play('audio.mp3', 'mp3', length=5, delay=8,
+                                       finish_on_key="#", delay_msg=DELAY_ERR_MESSAGE)
+    print("Received dtmf is: ", dtm)
     await call_handler.say("I hope you are doing well today my friend")
     await call_handler.say("we have recently received an online purchase request from your PayPal account. If this was not you press 1")
     dtmf_result = await call_handler.gather_and_say()

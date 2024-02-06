@@ -2,6 +2,9 @@ import asyncio
 from typing import List
 from wave import Wave_read
 
+from pydub import AudioSegment
+from scipy.io.wavfile import io
+
 from PySIP import _print_debug_info
 from .filters import CallState
 from .CustomCommuicate import CommWithPauses
@@ -28,18 +31,27 @@ class CallHandler:
         except Exception as e:
             pass
 
-    async def play(self, input_audio: bytes):
+    async def play(self, file_name: str, format: str = 'wav'):
         """Simple method to play an audio in call"""
         if not asyncio.current_task() in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
-        self.audio_stream = AudioStream(input_audio)
-        await self.audio_queue.put(AudioStream(input_audio))
+        temp_file = io.BytesIO()
+        try:
+            decoded_chunk: AudioSegment = AudioSegment.from_file(file_name, format=format)
+        except Exception as e: 
+            raise e
+        decoded_chunk = decoded_chunk.set_channels(1)
+        decoded_chunk = decoded_chunk.set_frame_rate(8000)        
+        decoded_chunk.export(temp_file, format='wav')
+
+        self.audio_stream = AudioStream(temp_file, self)
+        await self.audio_queue.put(("audio", self.audio_stream))
 
         return self.audio_stream
 
     async def gather(
-        self, length: int = 1, timeout: float = 7.0, finish_on_key=None
+        self, length: int = 1, timeout: float = 7.0, finish_on_key=None, stream=None
     ) -> int:
         """This method gathers a dtmf tone with the specified
         length and then returns when done"""
@@ -50,6 +62,7 @@ class CallHandler:
         dtmf_future.__setattr__("length", length)
         dtmf_future.__setattr__("timeout", timeout)
         dtmf_future.__setattr__("finish_on_key", finish_on_key)
+        dtmf_future.__setattr__("stream", stream)
         await self.audio_queue.put(("dtmf", dtmf_future))
 
         try:
@@ -85,6 +98,48 @@ class CallHandler:
             try:
                 dtmf_result = await self.gather(
                     length=length, timeout=delay, finish_on_key=finish_on_key
+                )
+                if dtmf_result:
+                    dtmf_result = dtmf_result
+                    return dtmf_result
+
+            except asyncio.TimeoutError:
+                text = delay_msg or "You did not any keys please try again"
+                await self.say(text)
+                continue
+
+        text = (
+            loop_msg
+            or f"You failed to enter the key in {loop} tries. Hanging up the call"
+        )
+        stream = await self.say(text)
+        await stream.flush()
+
+        return dtmf_result
+
+    async def gather_and_play(
+        self,
+        file_name: str,
+        format: str = 'wav',
+        length: int = 1,
+        delay: int = 7,
+        loop: int = 3,
+        finish_on_key=None,
+        loop_msg: str = "",
+        delay_msg: str = "",
+    ):
+        """This method waits for dtmf keys and then if received
+        it instantly send it"""
+        if not asyncio.current_task() in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
+
+        dtmf_result = None
+        for _ in range(loop):
+            try:
+                stream = await self.play(file_name, format)
+                dtmf_result = await self.gather(
+                    length=length, timeout=delay, finish_on_key=finish_on_key,
+                    stream=stream
                 )
                 if dtmf_result:
                     dtmf_result = dtmf_result
@@ -207,15 +262,17 @@ class CallHandler:
                             length = result.length
                             timeout = result.timeout
                             finish_on_key = result.finish_on_key
+                            stream = result.stream
                             _print_debug_info("Started to wait for DTMF")
                             awaitable = None
 
                             if self.previous_stream:
-                                asyncio.create_task(
-                                    self.call.dtmf_handler.started_typing(
-                                        self.previous_stream.drain
+                                if not stream:
+                                    asyncio.create_task(
+                                        self.call.dtmf_handler.started_typing(
+                                            self.previous_stream.drain
+                                        )
                                     )
-                                )
                                 awaitable = self.previous_stream.audio_sent_future
 
                             dtmf_result = await wait_for(
@@ -223,10 +280,15 @@ class CallHandler:
                                 timeout,
                                 awaitable
                             )
+                            self.previous_stream = stream
+                            if stream:
+                                await stream.drain()
                             result.set_result(dtmf_result)
-                            self.previous_stream = None
 
                         except asyncio.TimeoutError:
+                            self.previous_stream = stream
+                            if stream:
+                                await stream.drain()
                             result.set_exception(asyncio.TimeoutError)
 
                 except asyncio.TimeoutError:
@@ -269,7 +331,7 @@ class AudioStream(Wave_read):
         if self.instance:
             await self.instance.audio_queue.put(("drain", self))
             return
-        self.should_stop_streaming.set()
+        asyncio.get_event_loop().call_soon_threadsafe(self.should_stop_streaming.set)
 
     async def flush(self):
         await self.audio_sent_future
