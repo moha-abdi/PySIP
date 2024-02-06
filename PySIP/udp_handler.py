@@ -21,6 +21,9 @@ class UdpHandler(asyncio.DatagramProtocol):
         print("There was an error: ", exc)
 
     def send_message(self, message: bytes, address: tuple = None) -> None:
+        if not self.transport:
+            print("Can't do! the Transport is closed!")
+            return
         self.transport.sendto(message)
         # print(f"Message '{message.decode()}' sent to {address}")
 
@@ -33,7 +36,7 @@ class UdpHandler(asyncio.DatagramProtocol):
 
 
 class UdpReader:
-    def __init__(self, protocol: asyncio.DatagramProtocol) -> None:
+    def __init__(self, protocol: UdpHandler) -> None:
         self.protocol = protocol
 
     async def read(self, length: int = -1):
@@ -41,13 +44,16 @@ class UdpReader:
 
 
 class UdpWriter:
-    def __init__(self, protocol: asyncio.DatagramProtocol) -> None:
+    def __init__(self, protocol: UdpHandler) -> None:
         self.protocol = protocol
 
-    async def write(self, data: bytes) -> None:
+    async def write(self, data: bytes):
         self.protocol.send_message(data)
 
     def get_extra_info(self, name, default=None):
+        if not self.protocol.transport:
+            print("Can't do! the Transport is closed!")
+            return
         return self.protocol.transport.get_extra_info(name, default)
 
 

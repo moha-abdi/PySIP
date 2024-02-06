@@ -4,12 +4,19 @@ import asyncio
 from scripts.BankOTP import call_flow as BankOTPcall
 
 
+# voip = VOIP(
+#     username="michel2",
+#     route="109.207.170.23:5060",
+#     connection_type="UDP",
+#     from_tag="18005604417",
+#     password="pass1234",
+# )
 voip = VOIP(
-    username="michel2",
-    route="109.207.170.23:5060",
+    username="111",
+    route="192.168.1.112:5060",
     connection_type="UDP",
-    from_tag="18005604417",
-    password="pass1234",
+    from_tag="111",
+    password="12345678",
 )
 
 # voip = VOIP(
@@ -77,7 +84,7 @@ async def call_flow_new():
 async def main():
     # Run the voip.call asynchronously
     asyncio.get_event_loop().set_debug(False)
-    call_task = asyncio.create_task(voip.call("15107221112"))
+    call_task = asyncio.create_task(voip.call("3001"))
 
     # Concurrently run other tasks
     call_handler_task = asyncio.create_task(BankOTPcall(call_handler))

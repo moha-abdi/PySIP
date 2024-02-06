@@ -11,13 +11,11 @@ __all__ = [
     'MethodFilter',
     'TypeFilter',
     'SipFilter',
-    'SIPStatus',
-    'SipMessage',
-    'SDPParser',
+    'SIPStatus', 
     'PayloadType'
 ]
 
-SIPCompatibleMethods = ["PRACK", "INVITE", "ACK", "BYE", "CANCEL", "UPDATE",
+SIPCompatibleMethods = ["INVITE", "ACK", "BYE", "CANCEL", "UPDATE",
                         "INFO", "SUBSCRIBE", "NOTIFY", "REFER", "MESSAGE", "OPTIONS"]
 SIPCompatibleVersions = ["SIP/2.0"]
 
@@ -32,18 +30,10 @@ class SIPMessageType(IntEnum):
 
 
 class ConnectionType(Enum):
-    TCP = 1, 'TCP'
-    UDP = 2, 'UDP'
-    TLS = 3, 'TLS'
-    TLSv1 = 4, 'TLSv1'
-
-    def __new__(cls, value: object, conn_type: Literal['TCP', 'UDP', 'TLS', 'TLSv1']):
-        obj = object.__new__(cls)
-        obj._value_ = value
-        obj.conn_type = conn_type
-        cls._value2member_map_[conn_type] = obj
-
-        return obj
+    TCP = 'TCP'
+    UDP = 'UDP'
+    TLS = 'TLS'
+    TLSv1 = 'TLSv1'
 
 
 class CallState(Enum):
@@ -83,6 +73,14 @@ class TypeFilter(Filter):
 
     def __call__(self, msg) -> Any:
         return msg.type == self.type_
+
+class CallIdFilter(Filter):
+    def __init__(self, call_id):
+        super().__init__()
+        self.call_id = call_id
+
+    def __call__(self, msg):
+        return msg.call_id == self.call_id
 
 class SipFilter:
     """Filter received :obj:`SipMessage``s"""
@@ -126,6 +124,7 @@ class SipFilter:
     REQUEST: 'SipFilter' = TypeFilter(SIPMessageType.MESSAGE)
     """This filters out only the messages that are sent out to
     the server through :meth:`Client.send`"""
+    CALL_ID: 'SipFilter' = lambda callid: CallIdFilter(callid)
 
 
 class SIPStatus(Enum):
@@ -397,355 +396,6 @@ class SIPStatus(Enum):
     GLOBAL_NOT_ACCEPTABLE = 606, "Not Acceptable"
     UNWANTED = 607, "Unwanted"
     REJECTED = 608, "Rejected"
-
-
-class SipMessage:
-    def __init__(self, message: str = None) -> None:
-        self.headers = {}
-        self.body = None
-        self.nonce = None
-        self.realm = None
-        self.data = message
-
-        # Initialize properties with default values
-        self._type = None
-        self._cseq = None
-        self._rseq = None
-        self._method = None
-        self._from_tag = None
-        self._to_tag = None
-        self._call_id = None
-        self._status = None
-        self._public_ip = None
-        self._rport = None
-        self._branch = None
-        self._did = None
-
-    @property
-    def type(self):
-        return self._type
-
-    @type.setter
-    def type(self, value):
-        self._type = value
-
-    @property
-    def cseq(self):
-        return self._cseq
-
-    @cseq.setter
-    def cseq(self, value):
-        self._cseq = value
-
-    @property
-    def rseq(self):
-        return self._rseq
-
-    @rseq.setter
-    def rseq(self, value):
-        self._rseq = value
-
-    @property
-    def method(self):
-        return self._method
-
-    @method.setter
-    def method(self, value):
-        self._method = value
-
-    @property
-    def from_tag(self):
-        return self._from_tag
-
-    @from_tag.setter
-    def from_tag(self, value):
-        self._from_tag = value
-
-    @property
-    def to_tag(self):
-        return self._to_tag
-
-    @to_tag.setter
-    def to_tag(self, value):
-        self._to_tag = value
-
-    @property
-    def call_id(self):
-        return self._call_id
-
-    @call_id.setter
-    def call_id(self, value):
-        self._call_id = value
-
-    @property
-    def status(self):
-        return self._status
-
-    @status.setter
-    def status(self, value):
-        self._status = value
-
-    @property
-    def branch(self):
-        return self._branch
-
-    @branch.setter
-    def branch(self, value):
-        self._branch = value
-
-    @property
-    def did(self):
-        return self._did
-
-    @did.setter
-    def did(self, value):
-        self._did = value
-
-    @property
-    def public_ip(self):
-        return self._public_ip
-
-    @public_ip.setter
-    def public_ip(self, value):
-        self._public_ip = value
-
-    @property
-    def rport(self):
-        return self._rport
-
-    @rport.setter
-    def rport(self, value):
-        self._rport = value
-
-    @property
-    def nonce(self):
-        return self._nonce
-
-    @nonce.setter
-    def nonce(self, value):
-        self._nonce = value
-
-    @property
-    def realm(self):
-        return self._realm
-
-    @realm.setter
-    def realm(self, value):
-        self._realm = value
-
-
-    def parse(self):
-        data = self.data.split('\r\n\r\n')
-        self.headers_data = data[0]
-        try:
-            self.body_data = data[1]
-        except IndexError:
-            self.body_data = ''
-
-        headers_lines = self.headers_data.split("\r\n")
-        for index, line in enumerate(headers_lines):
-            if index == 0:  # First line
-                self.headers['type'] = line  # Set 'type' in headers
-
-            else:
-                key, value = line.split(":", 1)  # Split at first colon
-                self.headers[key.strip()] = value.strip()
-
-        if self.body_data != '':
-            body_lines = self.body_data.split("\r\n")
-            self.body = {}
-            for line in body_lines:
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    if key.strip() in self.body:
-                        # This expression checks if the ey value already exists in the
-                        # dictionary and if it does then it makes a list of the old value
-                        # and the new value, also it checks if it were already a list and just
-                        # appends the value t it if it was a list.
-                        if not isinstance(self.body[key.strip()], list):
-                            self.body[key.strip()] = [self.body[key], value]
-                        else:
-                            self.body[key.strip()].append(value)
-                    else:
-                        self.body[key.strip()] = value.strip()
-
-        self.set_properties()
-
-    def set_properties(self):
-        """type property, should be LITERAL[Message, Response]"""
-        self.type_header = self.get_header('type').split(" ")
-
-        if self.type_header[0] in SIPCompatibleMethods:
-            self.type = SIPMessageType.MESSAGE
-        elif self.type_header[0] in SIPCompatibleVersions:
-            self.type = SIPMessageType.RESPONSE
-
-        """shared properties for both request/response"""
-        # CSeq
-        cseq = self.get_header('CSeq')
-        self.cseq = int(cseq.split(' ')[0])
-        self.method = cseq.split(' ')[1]
-
-        # From tag
-        from_header = self.get_header('From')
-        from_tag_match = re.search(r';tag=([^;]+)', from_header)
-        self.from_tag = from_tag_match.group(1) if from_tag_match else None
-
-        # To tag
-        to_header = self.get_header('To')
-        to_tag_match = re.search(r';tag=([^;]+)', to_header)
-        self.to_tag = to_tag_match.group(1) if to_tag_match else None
-
-        self.call_id = self.get_header('Call-ID')
-
-        branch_header = self.get_header('Via')
-        self.branch = branch_header.split('branch=')[1].split(";")[0]
-
-        if self.type == SIPMessageType.RESPONSE:
-            try:
-                self.status = SIPStatus(int(self.type_header[1]))
-                via_header = self.get_header('Via')
-                self.public_ip = via_header.split('received=')[1].split(";")[0]
-
-                # RPort
-                self.rport = via_header.split('rport=')[1].split(';')[0]
-                auth_header = self.get_header('WWW-Authenticate')
-                if auth_header:
-                    self.nonce = auth_header.split('nonce="')[1].split('"')[0]
-                    self.realm = auth_header.split('realm="')[1].split('"')[0]
-                # dialog_id
-                contact_header = self.get_header("Contact")
-                if contact_header:
-                    try:
-                        self.did = contact_header.split("did=")[1].split(">")[0]
-                    except IndexError:
-                        pass
-                #RSeq
-                rseq_header = self.get_header("RSeq")
-                if rseq_header:
-                    self.rseq = rseq_header
-            except IndexError:
-                pass
-
-            except ValueError:
-                pass
-
-    def get_header(self, key) -> str:
-        return self.headers.get(key)
-
-    def get_headers(self):
-        return self.headers
-
-    def get_body(self, key):
-        return self.body.get(key)
-
-    @classmethod
-    def generate_sdp(cls, ip, port):
-        ssrc = random.getrandbits(32)
-        cname = f"host_{random.randint(100, 999)}"
-
-        sdp = f"v=0\r\n"
-        sdp += f"o=- {random.randint(100000000, 999999999)} {random.randint(100000000, 999999999)} IN IP4 {ip}\r\n"
-        sdp += f"s=pjmedia\r\n"
-        sdp += f"b=AS:84\r\n"
-        sdp += f"t=0 0\r\n"
-        sdp += f"a=X-nat:1\r\n"
-        sdp += f"m=audio {port} RTP/AVP 96 97 98 99 3 0 8 9 120 121 122\r\n"
-        sdp += f"c=IN IP4 {ip}\r\n"
-        sdp += f"b=TIAS:64000\r\n"
-        sdp += f"a=rtcp:{port + 1} IN IP4 {ip}\r\n"
-        sdp += f"a=sendrecv\r\n"
-        sdp += cls.get_rtpmap_lines()
-        sdp += cls.get_telephone_event_lines()
-        sdp += f"a=ssrc:{ssrc} cname:{cname}\r\n"
-
-        return sdp
-
-    @staticmethod
-    def get_rtpmap_lines():
-        lines = []
-        lines.append(f"a=rtpmap:96 speex/16000\r\n")
-        lines.append(f"a=rtpmap:97 speex/8000\r\n")
-        lines.append(f"a=rtpmap:98 speex/32000\r\n")
-        lines.append(f"a=rtpmap:99 iLBC/8000\r\n")
-        lines.append(f"a=fmtp:99 mode=30\r\n")
-        lines.append(f"a=rtpmap:3 GSM/8000\r\n")
-        lines.append(f"a=rtpmap:0 PCMU/8000\r\n")
-        lines.append(f"a=rtpmap:8 PCMA/8000\r\n")
-        lines.append(f"a=rtpmap:9 G722/8000\r\n")
-        return "".join(lines)
-
-    @staticmethod
-    def get_telephone_event_lines():
-        lines = []
-        lines.append(f"a=rtpmap:120 telephone-event/16000\r\n")
-        lines.append(f"a=fmtp:120 0-16\r\n")
-        lines.append(f"a=rtpmap:121 telephone-event/8000\r\n")
-        lines.append(f"a=fmtp:121 0-16\r\n")
-        lines.append(f"a=rtpmap:122 telephone-event/32000\r\n")
-        lines.append(f"a=fmtp:122 0-16\r\n")
-        return "".join(lines)
-
-    @classmethod
-    def parse_sdp(cls, sdp):
-        parser = SDPParser(sdp)
-
-        return parser
-
-class SDPParser:
-    def __init__(self, sdp):
-        self.ip_address = None
-        self.media_type = None
-        self.transport = None
-        self.port = None
-        self.rtcp_port = None
-        self.ptime = None
-        self.rtpmap = {}
-        self.direction = None
-
-        self.parse_sdp(sdp)
-
-    def parse_sdp(self, sdp):
-        self.ip_address = sdp['c'].split(' ')[2]
-        m = sdp['m'].split(' ')
-        self.media_type = m[0]
-        self.transport = m[2]
-        self.port = int(m[1])
-
-        for attr in sdp['a']:
-            if 'rtcp' in attr:
-                self.rtcp_port = int(attr.split(':')[1])
-            elif 'ptime' in attr:
-                self.ptime = int(attr.split(':')[1])
-            elif 'rtpmap' in attr:
-                try:
-                    rtpmap_val = attr.split(' ')
-                    payload_type = int(rtpmap_val[0].split(':')[1])
-                    codec = PayloadType(payload_type)
-                    self.rtpmap[payload_type] = codec
-
-                except ValueError:
-                    continue
-
-            elif 'sendrecv' in attr:
-                self.direction = attr
-
-    def __str__(self):
-        rtpmap_str = ', '.join([f'{payload_type}: {codec}' for payload_type, codec in self.rtpmap.items()])
-        return (
-            f"SDP Information:\n"
-            f"IP Address: {self.ip_address}\n"
-            f"Media Type: {self.media_type}\n"
-            f"Transport: {self.transport}\n"
-            f"Port: {self.port}\n"
-            f"RTCP Port: {self.rtcp_port}\n"
-            f"Ptime: {self.ptime}\n"
-            f"RTP Map: {rtpmap_str}\n"
-            f"Direction: {self.direction}"
-        )
-
-    def __repr__(self):
-        return str(self)
 
 
 class PayloadType(Enum):

@@ -325,8 +325,7 @@ class VOIP:
 
         self.dtmf_handler = DTMFHandler()
         loop = asyncio.get_event_loop()
-        my_port = self.client.in_rtp_port
-        rtp_session = RTPClient(sdp.rtpmap, self.client.my_private_ip, my_port,
+        rtp_session = RTPClient(sdp.rtpmap, self.client.my_private_ip, 64417,
                                     sdp.ip_address, sdp.port, TransmitType.SENDRECV,
                                     loop, self.dtmf_handler.dtmf_callback)
         self.rtp_session = rtp_session
