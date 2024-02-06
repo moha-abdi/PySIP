@@ -640,7 +640,7 @@ class SipMessage:
         return self.body.get(key)
 
     @classmethod
-    def generate_sdp(cls, ip):
+    def generate_sdp(cls, ip, port):
         ssrc = random.getrandbits(32)
         cname = f"host_{random.randint(100, 999)}"
 
@@ -650,10 +650,10 @@ class SipMessage:
         sdp += f"b=AS:84\r\n"
         sdp += f"t=0 0\r\n"
         sdp += f"a=X-nat:1\r\n"
-        sdp += f"m=audio 64417 RTP/AVP 96 97 98 99 3 0 8 9 120 121 122\r\n"
+        sdp += f"m=audio {port} RTP/AVP 96 97 98 99 3 0 8 9 120 121 122\r\n"
         sdp += f"c=IN IP4 {ip}\r\n"
         sdp += f"b=TIAS:64000\r\n"
-        sdp += f"a=rtcp:64418 IN IP4 {ip}\r\n"
+        sdp += f"a=rtcp:{port + 1} IN IP4 {ip}\r\n"
         sdp += f"a=sendrecv\r\n"
         sdp += cls.get_rtpmap_lines()
         sdp += cls.get_telephone_event_lines()

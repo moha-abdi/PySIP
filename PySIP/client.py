@@ -1,6 +1,7 @@
 import asyncio
 from functools import wraps
 import os
+import random
 import re
 import socket
 import ssl
@@ -100,6 +101,7 @@ class Client:
         self.last_invite_msg = None
         self.last_register_msg = None
         self.pysip_tasks = []
+        self.in_rtp_port = random.randint(10000, 20000)
 
     async def main(self):
         register_task = None
@@ -393,7 +395,7 @@ class Client:
             # msg += f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
             msg += f"Content-Type: application/sdp\r\n"
 
-            body = SipMessage.generate_sdp(ip)
+            body = SipMessage.generate_sdp(ip, self.in_rtp_port)
             msg += f"Content-Length:   {len(body.encode())}\r\n\r\n"
             msg += body
 
