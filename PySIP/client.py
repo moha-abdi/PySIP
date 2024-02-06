@@ -374,7 +374,7 @@ class Client:
         else:
             tag = self.generate_tag()
             call_id = self.call_id
-            generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
+            # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
             msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
             msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
