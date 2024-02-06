@@ -235,6 +235,9 @@ class SipCall:
             self.dialogue.auth_retry_count = 0 # reset the auth counter
             pass
 
+        # Finally update status and fire events
+        self.dialogue.update_state(msg)
+
 
     async def reinvite(self, auth, msg):
         reinvite_msg = self.generate_invite_message(auth, msg)

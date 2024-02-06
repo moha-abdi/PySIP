@@ -229,12 +229,19 @@ class SipCore:
                 if not self.udp_reader:
                     _print_debug_info("There is no UdpReader, can't read!")
                     return
-                data = await self.udp_reader.read(4096)
+                try:
+                    data = await asyncio.wait_for(self.udp_reader.read(4096), 0.5)
+                except asyncio.TimeoutError:
+                    continue # this is neccesary to avoid blocking of checking
+                             # whether app is runing or not 
             else:
                 if not self.reader:
                     _print_debug_info("There is no StreamReader, can't read!")
                     return
-                data = await self.reader.read(4096)
+                try:
+                    data = await asyncio.wait_for(self.reader.read(4096), 0.5)
+                except asyncio.TimeoutError:
+                    continue # very important!!
 
             sip_messages = self.extract_sip_messages(data)
             # print(f"Received {len(sip_messages)} messages")
@@ -318,6 +325,7 @@ class SipDialogue:
         self.transactions = []  # List to store transactions related to this dialogue
         self.cseq = Counter(random.randint(1, 2000))
         self.state = DialogState.INITIAL  # Start in the INITIAL state
+        self.events = {state: asyncio.Event() for state in DialogState}
         self.AUTH_RETRY_MAX = 1
         self.auth_retry_count = 0
  
@@ -358,6 +366,8 @@ class SipDialogue:
             self.state = DialogState.CONFIRMED
         elif message.method == "BYE":
             self.state = DialogState.TERMINATED
+        # finally we set the event for the specific state
+        self.events[self.state].set()
 
 
 class SipTransaction:

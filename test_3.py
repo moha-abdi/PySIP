@@ -125,3 +125,48 @@ class SIPStatus(Enum):
     )
 
 print(SIPStatus(100) == 100)
+
+
+import asyncio
+from enum import Enum, auto
+
+class DialogState(Enum):
+    INITIAL = auto()
+    EARLY = auto()
+    CONFIRMED = auto()
+    TERMINATED = auto()
+
+class Dialog:
+    def __init__(self):
+        self.state = DialogState.INITIAL
+        self.events = {state: asyncio.Event() for state in DialogState}
+
+    async def wait_for_state(self, state):
+        await self.events[state].wait()
+
+    async def simulate_processing(self):
+        await asyncio.sleep(2)
+        self.state = DialogState.INITIAL
+        self.events[DialogState.INITIAL].set()
+        await asyncio.sleep(2)
+        self.state = DialogState.EARLY
+        self.events[DialogState.EARLY].set()
+        print('set it now again')
+        self.events[DialogState.EARLY].set()
+        print('test passed')
+        await asyncio.sleep(2)
+        self.state = DialogState.CONFIRMED
+        self.events[DialogState.CONFIRMED].set()
+        await asyncio.sleep(2)
+        self.state = DialogState.TERMINATED
+        self.events[DialogState.TERMINATED].set()
+
+async def main():
+    dialog = Dialog()
+    await asyncio.gather(
+        dialog.events[DialogState.INITIAL].wait(),
+        dialog.events[DialogState.EARLY].wait(),
+        dialog.events[DialogState.CONFIRMED].wait(),
+        dialog.events[DialogState.TERMINATED].wait(),
+        dialog.simulate_processing()
+    )
