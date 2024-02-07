@@ -5,13 +5,13 @@ from typing import Literal
 import edge_tts
 from edge_tts.communicate import uuid
 
-from .sip_core import Counter, SipCore, SipDialogue, SipMessage
+from .sip_core import Counter, DialogState, SipCore, SipDialogue, SipMessage
 from .CustomCommuicate import CommWithPauses, NoPausesFound
 from pydub import AudioSegment
 import os
 import janus
 
-from .filters import SIPMessageType, SIPStatus, ConnectionType, CallState
+from .filters import SIPCompatibleMethods, SIPMessageType, SIPStatus, ConnectionType, CallState
 from enum import Enum
 from .rtp import PayloadType, RTPClient, TransmitType
 from . import _print_debug_info
@@ -120,6 +120,7 @@ class SipCall:
                     pass  # Task cancellation is expected
 
     async def stop(self, reason: str = "Normal Stop"):
+        await self.dialogue.events[DialogState.TERMINATED].wait()
         self.sip_core.is_running.clear()
         await self.sip_core.close_connections()
         _print_debug_info("Call terminated due to: ", reason)
@@ -192,7 +193,51 @@ class SipCall:
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} ACK\r\n"
         msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
-        msg += f"Content-Length:  0\r\n\r\n"
+        msg += f"Content-Length: 0\r\n\r\n"
+
+        return msg
+
+    def bye_generator(self):
+        peer_ip, peer_port = self.sip_core.get_extra_info('peername')
+        _, port = self.sip_core.get_extra_info('sockname')
+
+        branch_id = self.sip_core.gen_branch()
+        transaction = self.dialogue.add_transaction(branch_id, "BYE")
+
+        msg = f"BYE sip:{self.callee}@{peer_ip}:{peer_port};transport={self.CTS} SIP/2.0\r\n"
+        msg += (f"Via: SIP/2.0/{self.CTS} {self.my_public_ip}:{port};rport;" +
+                f"branch={branch_id};alias\r\n")
+        msg += 'Reason: Q.850;cause=16;text="normal call clearing"'
+        msg += "Max-Forwards: 70\r\n"
+        msg += f"From: sip:{self.username}@{self.server};tag={self.dialogue.local_tag}\r\n"
+        msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
+        msg += f"Call-ID: {self.call_id}\r\n"
+        msg += f"CSeq: {transaction.cseq} BYE\r\n"
+        msg += "Content-Length: 0\r\n\r\n"
+
+        return msg
+
+    def ok_generator(self, data_parsed: SipMessage):
+        peer_ip, peer_port = self.sip_core.get_extra_info('peername')
+        _, port = self.sip_core.get_extra_info('sockname')
+
+        if data_parsed.is_from_client(self.username):
+            from_header = f"From: <sip:{self.username}@{self.server}>;tag={self.dialogue.local_tag}\r\n"
+            to_header = f"To: <sip:{self.callee}@{self.server}>;tag={self.dialogue.remote_tag}\r\n"
+        else:
+            from_header = f"From: <sip:{self.callee}@{self.server}>;tag={self.dialogue.remote_tag}\r\n"
+            to_header = f"To: <sip:{self.username}@{self.server}>;tag={self.dialogue.local_tag}\r\n"
+
+        msg = "SIP/2.0 200 OK\r\n"
+        msg += (f"Via: " + data_parsed.get_header("Via") + "\r\n")
+        msg += from_header 
+        msg += to_header
+        msg += f"Call-ID: {data_parsed.call_id}\r\n"
+        msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
+        msg += f"Contact: <sip:{self.username}@{self.my_public_ip}:{port};transport={self.CTS.upper()};ob>\r\n"
+        msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
+        msg += "Supported: replaces, timer\r\n"
+        msg += "Content-Length: 0\r\n\r\n"
 
         return msg
 
@@ -234,6 +279,16 @@ class SipCall:
             self.dialogue.remote_tag = msg.to_tag or '' # setting it if not already
             self.dialogue.auth_retry_count = 0 # reset the auth counter
             pass
+
+        elif msg.method == "BYE" and not msg.is_from_client(self.username):
+            # Hanlding callee call hangup
+            if not str(msg.data).startswith('BYE'):
+                # Seperating BYE messges from 200 OK to bye messages or etc.
+                self.dialogue.update_state(msg)
+                return
+            ok_message = self.ok_generator(msg)
+            await self.sip_core.send(ok_message)
+            await self.stop("Callee hanged up")
 
         # Finally update status and fire events
         self.dialogue.update_state(msg)

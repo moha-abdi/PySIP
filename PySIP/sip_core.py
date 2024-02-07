@@ -364,7 +364,7 @@ class SipDialogue:
             self.state = DialogState.EARLY
         elif self.state in [DialogState.INITIAL, DialogState.EARLY] and is_final_response:
             self.state = DialogState.CONFIRMED
-        elif message.method == "BYE":
+        elif message.method == "BYE" and message.status is SIPStatus.OK:
             self.state = DialogState.TERMINATED
         # finally we set the event for the specific state
         self.events[self.state].set()
@@ -607,6 +607,10 @@ class SipMessage:
 
             except ValueError:
                 pass
+
+    def is_from_client(self, uac_username):
+        from_header = self.get_header("From")
+        return str(uac_username) in from_header
 
     def get_header(self, key) -> str:
         return self.headers.get(key)

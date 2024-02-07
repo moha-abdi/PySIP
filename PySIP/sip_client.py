@@ -201,7 +201,7 @@ class SipClient:
         msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
         msg += f"Contact: <sip:{self.username}@{my_public_ip}:{port};transport={self.CTS.upper()};ob>\r\n"
         msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
-        msg += f"Supported: replaces, 100rel, timer\r\n"
+        msg += f"Supported: replaces, timer\r\n"
         msg += f"Content-Length: 0\r\n\r\n"
 
         return msg
