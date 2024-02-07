@@ -125,8 +125,8 @@ class CallHandler:
         delay: int = 7,
         loop: int = 3,
         finish_on_key=None,
-        loop_msg: str = "",
-        delay_msg: str = "",
+        loop_audio_file: str = "",
+        delay_audio_file: str = "",
     ):
         """This method waits for dtmf keys and then if received
         it instantly send it"""
@@ -146,15 +146,16 @@ class CallHandler:
                     return dtmf_result
 
             except asyncio.TimeoutError:
-                text = delay_msg or "You did not any keys please try again"
-                await self.say(text)
+                if delay_audio_file:
+                    await self.play(delay_audio_file, format=format)
+                else:
+                    await self.say("You did not any keys please try again")
                 continue
 
-        text = (
-            loop_msg
-            or f"You failed to enter the key in {loop} tries. Hanging up the call"
-        )
-        stream = await self.say(text)
+        if loop_audio_file:
+            stream = await self.play(loop_audio_file, format=format)
+        else:
+            stream = await self.say(f"You failed to enter the key in {loop} tries. Hanging up the call")
         await stream.flush()
 
         return dtmf_result
