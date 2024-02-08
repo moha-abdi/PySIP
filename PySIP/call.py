@@ -2,7 +2,7 @@ import asyncio
 from collections import namedtuple
 from math import prod
 import signal
-from typing import Literal
+from typing import List, Literal
 import wave
 import edge_tts
 from .CustomCommuicate import CommWithPauses, NoPausesFound
@@ -453,7 +453,7 @@ class DTMFHandler:
         self.queue: janus.Queue[str] = janus.Queue()
         self.dtmf_queue = asyncio.Queue()
         self.started_typing_event = asyncio.Event()
-        self.dtmf_codes = []
+        self.dtmf_codes: List[str] = []
 
     def dtmf_callback(self, code: str) -> None:
         self.queue.sync_q.put(code)
@@ -461,10 +461,11 @@ class DTMFHandler:
 
     async def started_typing(self, event):
         await self.started_typing_event.wait()
+        self.started_typing_event.clear()
         await event()
 
     async def get_dtmf(self, length=1, finish_on_key=None) -> str:
-        dtmf_codes = []
+        dtmf_codes: List[str] = []
 
         if finish_on_key:
             while True:

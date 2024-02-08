@@ -29,7 +29,7 @@ class CallHandler:
             return self.audio_stream
 
         except Exception as e:
-            pass
+            _print_debug_info("Error in say: ", e)
 
     async def play(self, file_name: str, format: str = 'wav'):
         """Simple method to play an audio in call"""
@@ -268,12 +268,11 @@ class CallHandler:
                             awaitable = None
 
                             if self.previous_stream:
-                                if not stream:
-                                    asyncio.create_task(
-                                        self.call.dtmf_handler.started_typing(
-                                            self.previous_stream.drain
-                                        )
+                                asyncio.create_task(
+                                    self.call.dtmf_handler.started_typing(
+                                        self.previous_stream.drain
                                     )
+                                )
                                 awaitable = self.previous_stream.audio_sent_future
 
                             dtmf_result = await wait_for(
@@ -330,9 +329,9 @@ class AudioStream(Wave_read):
     async def drain(self):
         """This ensures that any remains of the current stream is dropped"""
         if self.instance:
-            await self.instance.audio_queue.put(("drain", self))
+            self.should_stop_streaming.set()
             return
-        asyncio.get_event_loop().call_soon_threadsafe(self.should_stop_streaming.set)
+        self.should_stop_streaming.set()
 
     async def flush(self):
         await self.audio_sent_future

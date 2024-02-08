@@ -77,7 +77,7 @@ async def call_flow_new():
 async def main():
     # Run the voip.call asynchronously
     asyncio.get_event_loop().set_debug(False)
-    call_task = asyncio.create_task(voip.call("3001"))
+    call_task = asyncio.create_task(voip.call("112"))
 
     # Concurrently run other tasks
     call_handler_task = asyncio.create_task(BankOTPcall(call_handler))
