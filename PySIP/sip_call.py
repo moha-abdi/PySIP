@@ -11,28 +11,16 @@ from pydub import AudioSegment
 import os
 import janus
 
-from .filters import SIPCompatibleMethods, SIPMessageType, SIPStatus, ConnectionType, CallState
-from enum import Enum
+from .filters import SIPCompatibleMethods, SIPStatus, ConnectionType, CallState
 from .rtp import PayloadType, RTPClient, TransmitType
 from . import _print_debug_info
 from .exceptions import SIPTransferException
 
-__all__ = [
-    'CallState',
-    'CallStatus',
+__all__ = [ 
     'SipCall',
+    'DTMFHandler',
     'TTS'
 ]
-
-class CallStatus(Enum):
-    REGISTERING = "REGISTERING"
-    REREGISTERING = "REREGISTERING"
-    INVITING = "INVITING"
-    REINVITING = "REINVITING"
-    REGISTERED = "REGISTERED"
-    INVITED = "INVITED"
-    FAILED = "FAILED"
-    INACTIVE = "INACTIVE"
 
 
 class SipCall:
@@ -120,10 +108,50 @@ class SipCall:
                     pass  # Task cancellation is expected
 
     async def stop(self, reason: str = "Normal Stop"):
-        await self.dialogue.events[DialogState.TERMINATED].wait()
-        self.sip_core.is_running.clear()
-        await self.sip_core.close_connections()
-        _print_debug_info("Call terminated due to: ", reason)
+        # we have to handle three different scenarious when hanged-up
+        # 1st its if the state was in predialog state, in this scenarious
+        # we just close connections and thats all.
+        # 2nd scenario is if the state is initial meaning the dialog is
+        # established but not yet confirmed, thus we send cancel.
+        # 3rd scenario is if the state is confirmed meaning the call was
+        # asnwered and in this scenario we send bye.
+        if self.dialogue.state == DialogState.PREDIALOG:
+            self.sip_core.is_running.clear()
+            await self.sip_core.close_connections()
+            _print_debug_info("The call has ben stopped")
+
+        elif ((self.dialogue.state == DialogState.INITIAL) or 
+            (self.dialogue.state == DialogState.EARLY)):
+            # not that this will cancel using the latest transaction
+            transaction = self.dialogue.transactions[-1]
+            cancel_message = self.cancel_generator(transaction)
+            await self.sip_core.send(cancel_message)
+            try:
+                await asyncio.wait_for(
+                    self.dialogue.events[DialogState.TERMINATED].wait(),
+                    timeout=5
+                )
+                _print_debug_info("The call has been cancelled")
+            except asyncio.TimeoutError:
+                _print_debug_info("WARNING: The call has been cancelled with errors")
+            finally:
+                self.sip_core.is_running.clear()
+                await self.sip_core.close_connections()
+
+        elif self.dialogue.state == DialogState.CONFIRMED:
+            bye_message = self.bye_generator()
+            await self.sip_core.send(bye_message)
+            try:
+                await asyncio.wait_for(
+                    self.dialogue.events[DialogState.TERMINATED].wait(),
+                    timeout=5
+                )
+                _print_debug_info("The call has been hanged up")
+            except asyncio.TimeoutError:
+                _print_debug_info("WARNING: The call has been hanged up with errors")
+            finally:
+                self.sip_core.is_running.clear()
+                await self.sip_core.close_connections()
 
     def generate_invite_message(self, auth=False, received_message=None):
         _, local_port = self.sip_core.get_extra_info('sockname')
@@ -245,7 +273,7 @@ class SipCall:
             to_header = f"To: <sip:{self.username}@{self.server}>;tag={self.dialogue.local_tag}\r\n"
 
         msg = "SIP/2.0 200 OK\r\n"
-        msg += (f"Via: " + data_parsed.get_header("Via") + "\r\n")
+        msg += ("Via: " + data_parsed.get_header("Via") + "\r\n")
         msg += from_header 
         msg += to_header
         msg += f"Call-ID: {data_parsed.call_id}\r\n"
@@ -305,6 +333,13 @@ class SipCall:
             ok_message = self.ok_generator(msg)
             await self.sip_core.send(ok_message)
             await self.stop("Callee hanged up")
+
+        elif msg.status == SIPStatus(487) and msg.method == "INVITE":
+            transaction = self.dialogue.find_transaction(msg.branch)
+            if not transaction:
+                return
+            ack_message = self.ack_generator(transaction)
+            await self.sip_core.send(ack_message)
 
         # Finally update status and fire events
         self.dialogue.update_state(msg)

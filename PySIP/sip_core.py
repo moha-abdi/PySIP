@@ -17,6 +17,7 @@ from .exceptions import NoPasswordFound
 from enum import Enum, auto
 
 class DialogState(Enum):
+    PREDIALOG = auto()  # Custom state meaning before auth is finished, as we inclided it in the dialog
     INITIAL = auto()  # Before receiving any provisional response
     EARLY = auto()    # After receiving a provisional response but before the final response
     CONFIRMED = auto() # After receiving a final response
@@ -324,7 +325,7 @@ class SipDialogue:
         self.remote_tag = remote_tag  # The tag of the other party
         self.transactions = []  # List to store transactions related to this dialogue
         self.cseq = Counter(random.randint(1, 2000))
-        self.state = DialogState.INITIAL  # Start in the INITIAL state
+        self.state = DialogState.PREDIALOG  # Start with the PREDIALOG state
         self.events = {state: asyncio.Event() for state in DialogState}
         self.AUTH_RETRY_MAX = 1
         self.auth_retry_count = 0
@@ -360,13 +361,21 @@ class SipDialogue:
         # This method should be called with each message received/sent that pertains to this dialog
         is_provisional_response = (str(message.status).startswith('18')) and (message.method == "INVITE")
         is_final_response = (message.status is SIPStatus(200)) and (message.method == "INVITE")
-        if self.state == DialogState.INITIAL and is_provisional_response:
+        if ((self.state == DialogState.PREDIALOG) and (message.method == "INVITE") and
+                message.get_header("Authorization")):
+            self.state = DialogState.INITIAL
+
+        elif self.state == DialogState.INITIAL and is_provisional_response:
             self.state = DialogState.EARLY
+
         elif self.state in [DialogState.INITIAL, DialogState.EARLY] and is_final_response:
             self.state = DialogState.CONFIRMED
         elif message.method == "BYE" and message.status is SIPStatus.OK:
             self.state = DialogState.TERMINATED
+        elif message.status == SIPStatus(487) and message.method == "INVITE":
+            self.state = DialogState.TERMINATED
         # finally we set the event for the specific state
+        _print_debug_info("state is now: ", self.state)
         self.events[self.state].set()
 
 
