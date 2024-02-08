@@ -217,6 +217,22 @@ class SipCall:
 
         return msg
 
+    def cancel_generator(self, transaction):
+        _, port = self.sip_core.get_extra_info('sockname')
+        ip = self.my_public_ip
+
+        msg = f"CANCEL sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
+        msg += (f"Via: SIP/2.0/{self.CTS} {ip}:{port};" +
+                f"rport;branch={transaction.branch_id};alias\r\n")
+        msg += "Max-Forwards: 70\r\n"
+        msg += f"From:sip:{self.username}@{self.server};tag={self.dialogue.local_tag}\r\n"
+        msg += f"To: sip:{self.callee}@{self.server}\r\n"
+        msg += f"Call-ID: {self.call_id}\r\n"
+        msg += f"CSeq: {transaction.cseq} CANCEL\r\n"
+        msg += "Content-Length: 0\r\n\r\n"
+
+        return msg
+
     def ok_generator(self, data_parsed: SipMessage):
         peer_ip, peer_port = self.sip_core.get_extra_info('peername')
         _, port = self.sip_core.get_extra_info('sockname')
