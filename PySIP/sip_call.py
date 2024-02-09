@@ -153,6 +153,15 @@ class SipCall:
                 self.sip_core.is_running.clear()
                 await self.sip_core.close_connections()
 
+        elif self.dialogue.state == DialogState.TERMINATED:
+            self.sip_core.is_running.clear()
+            await self.sip_core.close_connections()
+            _print_debug_info(f"Call stopped!! - {reason}")
+            
+        # finally notify the callbacks
+        for cb in self._get_callbacks("hanged_up_cb"):
+            await cb(reason)
+
     def generate_invite_message(self, auth=False, received_message=None):
         _, local_port = self.sip_core.get_extra_info('sockname')
         local_ip = self.my_public_ip  # Corrected the typo from 'puplic' to 'public'
@@ -407,6 +416,13 @@ class SipCall:
         callbacks = self._callbacks.get(cb_type, [])
         if cb in callbacks:
             callbacks.remove(cb)
+
+    def on_call_hanged_up(self, func):
+        @wraps(func)
+        async def wrapper(reason: str):
+            return await func(reason)
+        self._register_callback("hanged_up_cb", wrapper) 
+        return wrapper
 
 class TTS:
     def __init__(
