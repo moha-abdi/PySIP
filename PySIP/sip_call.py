@@ -344,6 +344,46 @@ class SipCall:
         # Finally update status and fire events
         self.dialogue.update_state(msg)
 
+    async def error_handler(self, msg: SipMessage):
+
+        if not 400 <= msg.status.code <= 699:
+            return
+
+        if msg.status in [SIPStatus(401), SIPStatus(487)]:
+            return
+
+        if msg.status in [SIPStatus(486), SIPStatus(600), SIPStatus(603)]:
+            # handle if busy
+            transaction = self.dialogue.find_transaction(msg.branch)
+            if not transaction:
+                return
+            ack_message = self.ack_generator(transaction)
+            await self.sip_core.send(ack_message)
+            # set the diologue state to TERMINATED and close
+            self.dialogue.state = DialogState.TERMINATED
+            self.dialogue.update_state(msg)
+            await self.update_call_state(CallState.BUSY)
+            if msg.status:
+                await self.stop(msg.status.phrase)
+            else:
+                await self.stop()
+
+        else:
+            # for all other errors just send ack
+            transaction = self.dialogue.find_transaction(msg.branch)
+            if not transaction:
+                return
+            ack_message = self.ack_generator(transaction)
+            await self.sip_core.send(ack_message)
+            # set the diologue state to TERMINATED and close
+            self.dialogue.state = DialogState.TERMINATED
+            self.dialogue.update_state(msg)
+            await self.update_call_state(CallState.FAILED)
+            if msg.status:
+                await self.stop(msg.status.phrase)
+            else:
+                await self.stop()
+
 
     async def reinvite(self, auth, msg):
         reinvite_msg = self.generate_invite_message(auth, msg)
