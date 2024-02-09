@@ -37,11 +37,13 @@ class ConnectionType(Enum):
 
 
 class CallState(Enum):
+    INITIALIZING = "INITIALIZING"
     DAILING = "DIALING"
     RINGING = "RINGING"
     ANSWERED = "ANSWERED"
     ENDED = "ENDED"
     FAILED = "FAILED"
+    BUSY = "BUSY"
 
 
 class Filter:
