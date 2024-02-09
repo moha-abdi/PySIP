@@ -1,3 +1,4 @@
+import logging
 import re
 import random
 import asyncio
@@ -9,8 +10,8 @@ import hashlib
 from typing import List
 import requests
 
+from .utils.logger import logger
 from .filters import SipFilter, SIPMessageType, SIPCompatibleMethods, SIPStatus, ConnectionType
-from . import _print_debug_info
 from .udp_handler import open_udp_connection
 from .filters import SIPCompatibleMethods, SIPCompatibleVersions, SIPMessageType, SIPStatus, PayloadType
 from .exceptions import NoPasswordFound
@@ -64,8 +65,8 @@ class SipCore:
             # Close the socket
             s.close()
         except Exception as e:
-            ip = "Error: " + str(e)
-            _print_debug_info(ip)
+            logger.log(logging.CRITICAL, "The local IP address couldn't be retreived.")
+            raise e
         return ip
 
     def get_extra_info(self, name: str):
@@ -149,7 +150,7 @@ class SipCore:
                 self.is_running.set()
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
                 ssl_context.set_ciphers("AES128-SHA")
-                ssl_context.keylog_filename = 'premaster.txt'
+                ssl_context.keylog_filename = 'tls_keylog.log'
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server,
                     self.port,
@@ -157,12 +158,12 @@ class SipCore:
                 )
 
         except (OSError, ssl.SSLError) as e:
-            print(f"Error during connection: {e}")
+            logger.log(logging.ERROR, f"Error during connection: {e}", exc_info=True)
             # Handle the error as needed
         except Exception as e:
-            print(f"Unexpected error: {e}")
+            logger.log(logging.ERROR, f"Unexpected error: {e}", exc_info=True)
         except asyncio.CancelledError:
-            print("Cancelled task")
+            logger.log(logging.DEBUG, "The sip_core.connect task has been cancelled.")
 
     def on_message(self, filters:SipFilter=None):
         def decorator(func):
@@ -208,14 +209,14 @@ class SipCore:
     async def send(self, msg):
         if self.connection_type == ConnectionType.UDP:
             if not self.udp_writer:
-                _print_debug_info("There is no UdpWriter, cant write!")
+                logger.log(logging.CRITICAL, "There is no UdpWriter, cant write!")
                 return
             await self.send_to_callbacks(msg)
             await self.udp_writer.write(msg.encode())
 
         else:
             if not self.writer:
-                _print_debug_info("There is no StreamWriter, can't write!")
+                logger.log(logging.CRITICAL, "There is no StreamWriter, can't write!")
                 return
             await self.send_to_callbacks(msg)
             self.writer.write(msg.encode())
@@ -228,7 +229,7 @@ class SipCore:
 
             if self.connection_type == ConnectionType("UDP"):
                 if not self.udp_reader:
-                    _print_debug_info("There is no UdpReader, can't read!")
+                    logger.log(logging.CRITICAL, "There is no UdpReader, can't read!")
                     return
                 try:
                     data = await asyncio.wait_for(self.udp_reader.read(4096), 0.5)
@@ -237,7 +238,7 @@ class SipCore:
                              # whether app is runing or not 
             else:
                 if not self.reader:
-                    _print_debug_info("There is no StreamReader, can't read!")
+                    logger.log(logging.CRITICAL, "There is no StreamReader, can't read!")
                     return
                 try:
                     data = await asyncio.wait_for(self.reader.read(4096), 0.5)
@@ -245,7 +246,6 @@ class SipCore:
                     continue # very important!!
 
             sip_messages = self.extract_sip_messages(data)
-            # print(f"Received {len(sip_messages)} messages")
 
             for sip_message_data in sip_messages:
                 await self.send_to_callbacks(sip_message_data.decode())
@@ -292,9 +292,9 @@ class SipCore:
                     self.writer.close()
                     await self.writer.wait_closed()
         except Exception as e:
-            print(f"Error closing connections: {e}")
+            logger.log(logging.ERROR, f"Error closing connections: {e}", exc_info=True)
 
-        _print_debug_info("Successfully closed connections")   
+        logger.log(logging.INFO, "Successfully closed connections")   
 
 
 class Checksum:
@@ -342,10 +342,8 @@ class SipDialogue:
         # Create a new transaction and add it to the dialogue's transaction list
         if method != "ACK":
             cseq = next(self.cseq)
-            print(f"the meth: {method} and cseq: {cseq} and curr: {self.cseq.current()}")
         else:
             cseq = self.cseq.current()
-            print(f"the meth: {method} and cseq: {cseq}")
         transaction = SipTransaction(self.call_id, branch_id, cseq)
         self.transactions.append(transaction)
         return transaction
@@ -359,6 +357,7 @@ class SipDialogue:
 
     def update_state(self, message):
         # This method should be called with each message received/sent that pertains to this dialog
+        self.previous_state = self.state
         is_provisional_response = (str(message.status).startswith('18')) and (message.method == "INVITE")
         is_final_response = (message.status is SIPStatus(200)) and (message.method == "INVITE")
         if ((self.state == DialogState.PREDIALOG) and (message.method == "INVITE") and
@@ -375,8 +374,10 @@ class SipDialogue:
         elif message.status == SIPStatus(487) and message.method == "INVITE":
             self.state = DialogState.TERMINATED
         # finally we set the event for the specific state
-        _print_debug_info("state is now: ", self.state)
         self.events[self.state].set()
+
+        if self.state != self.previous_state:
+            logger.log(logging.DEBUG, f"Dialog state changed to -> {self.state}")
 
 
 class SipTransaction:

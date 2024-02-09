@@ -16,20 +16,12 @@
 #
 # For more information and usage examples, visit the
 # PySIP GitHub repository: https://github.com/moha-abdi/pysip
+import logging
+from .utils.logger import logger, console_handler
 
-__all__ = [
-    'client',
-    'filters',
-    'call',
-    'rtp'
-]
-
-__version__ = "1.2.0"
+__version__ = "1.4.0"
 __license__ = "MIT License"
 __copyright__ = "Copyright (C) 2023-present Moha"
 
-DEBUG = True
 
-def _print_debug_info(*args, **kwargs):
-    if DEBUG:
-        print(args, kwargs)
+console_handler.setLevel(logging.INFO) 

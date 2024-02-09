@@ -1,11 +1,12 @@
 import asyncio
+import logging
 import uuid
 import random
 import traceback
 
 from .sip_core import SipCore, SipMessage, Counter
 from .filters import SIPCompatibleMethods, SIPStatus, ConnectionType, SipFilter
-from . import _print_debug_info
+from .utils.logger import logger
 from .exceptions import NoPasswordFound
 
 
@@ -58,8 +59,7 @@ class SipClient:
                     raise
 
         except Exception as e:
-            print("Error: ", e)
-            traceback.print_exc()
+            logger.log(logging.ERROR, e, exc_info=True)
             return
 
         finally:
@@ -81,8 +81,8 @@ class SipClient:
     async def stop(self):
         unregister = self.build_register_message(unregister=True)
         await self.sip_core.send(unregister)
-        is_unregistered = await self.unregistered.wait()
-        print("Done")
+        await self.unregistered.wait()
+        logger.log(logging.INFO, "Sip client has been de-registered from the server")
 
         self.sip_core.is_running.clear()
         await self.sip_core.close_connections()
@@ -105,7 +105,8 @@ class SipClient:
             if not self.sip_core.is_running.is_set():
                 break
 
-        print("DOne")
+        logger.log(logging.DEBUG, "The app will no longer register. Registeration task stopped.")
+
 
     async def wait_for_event_clear(self, event: asyncio.Event):
         while True:
@@ -185,7 +186,7 @@ class SipClient:
         _, port = self.sip_core.get_extra_info('sockname')
         my_public_ip = self.my_public_ip
 
-        msg = f"SIP/2.0 200 OK\r\n"
+        msg = "SIP/2.0 200 OK\r\n"
         msg += (f"Via: SIP/2.0/{self.CTS} {my_public_ip}:{port};rport;" +
                 f"branch={data_parsed.branch}\r\n")
 
@@ -201,8 +202,8 @@ class SipClient:
         msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
         msg += f"Contact: <sip:{self.username}@{my_public_ip}:{port};transport={self.CTS.upper()};ob>\r\n"
         msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
-        msg += f"Supported: replaces, timer\r\n"
-        msg += f"Content-Length: 0\r\n\r\n"
+        msg += "Supported: replaces, timer\r\n"
+        msg += "Content-Length: 0\r\n\r\n"
 
         return msg
 
@@ -221,7 +222,6 @@ class SipClient:
         msg = self.build_register_message()
 
         await self.sip_core.send(msg)
-        _print_debug_info("Sent")
         return
 
     async def message_handler(self, msg: SipMessage):
@@ -231,7 +231,6 @@ class SipClient:
         # difference is that its handled inside the :obj:`Client`
         # and it's onlt for developer's usage. unlike other handlers
         # it has no filters for now.
-        # print(msg.data)
         to = msg.get_header("To")
         if (not msg.call_id == self.call_id and
             self.username not in to): # Filter only current call
@@ -241,11 +240,11 @@ class SipClient:
         if msg.status == SIPStatus(401) and msg.method == "REGISTER":
             # This is the case when we have to send a retegister
             await self.reregister(True, msg)
-            _print_debug_info("REGISTERING...")
+            logger.log(logging.INFO, "Register message has been sent to the server")
 
         elif msg.status == SIPStatus(200) and msg.method == "REGISTER":
             # This is when we receive the response for the register
-            _print_debug_info("RE-REGISTERED...")
+            logger.log(logging.INFO, "Successfully REGISTERATION")
 
             # In case the response is of Un-register we set this
             if self.register_tags['type'] == "UNREGISTER":
@@ -253,7 +252,7 @@ class SipClient:
                     self.unregistered.set()
 
         elif msg.data.startswith("OPTIONS"): # If we recieve PING then PONG incase of keep-alive required
-            _print_debug_info("OPTION HANDLER")
+            logging.log(logging.DEBUG, "Keep-alive message received from the server. sending OK")
             options_ok = self.ok_generator(msg)
             await self.sip_core.send(options_ok)
 

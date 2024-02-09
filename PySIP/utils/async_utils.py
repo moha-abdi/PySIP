@@ -1,5 +1,7 @@
 import asyncio
 import functools
+import logging
+from .logger import logger
 
 
 async def _cancel_and_wait(fut, loop):
@@ -54,7 +56,7 @@ async def wait_for(fut, timeout, fut_2):
 
     def start_timeout(waiter, *args):
         nonlocal timeout_handle
-        print("The timout for DTMF has started right now...")
+        logger.log(logging.DEBUG, "The timeout for DTMF has started right now.")
         timeout_handle = loop.call_later(timeout, _release_waiter, waiter)
 
     waiter = loop.create_future()

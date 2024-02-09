@@ -1,8 +1,9 @@
 import asyncio
+import logging
 from typing import List
 from wave import Wave_read
 
-from PySIP import _print_debug_info
+from .utils.logger import logger
 from .filters import CallState
 from .CustomCommuicate import CommWithPauses
 from .utils.async_utils import wait_for
@@ -164,7 +165,7 @@ class CallHandler:
     async def send_handler(self):
         try:
             self.call.client.pysip_tasks.append(asyncio.current_task())
-            _print_debug_info("CallHandler has been initialized..")
+            logger.log(logging.INFO, "CallHandler has been initialized.")
             empty_queue_count = 0  # Counter for consecutive empty queue checks
 
             while True:
@@ -183,7 +184,6 @@ class CallHandler:
                     event_type, result = await asyncio.wait_for(
                         self.audio_queue.get(), timeout=1.0
                     )
-                    # _print_debug_info(f"Q is got, type {event_type}")
                     empty_queue_count = 0  # Reset the counter if an item is retrieved
 
                     if event_type == "audio":
@@ -207,7 +207,7 @@ class CallHandler:
                             length = result.length
                             timeout = result.timeout
                             finish_on_key = result.finish_on_key
-                            _print_debug_info("Started to wait for DTMF")
+                            logger.log(logging.DEBUG, "Waiting for DTMF Key")
                             awaitable = None
 
                             if self.previous_stream:
@@ -232,17 +232,14 @@ class CallHandler:
                 except asyncio.TimeoutError:
                     empty_queue_count += 1
                     if empty_queue_count >= 10:
-                        _print_debug_info(
-                            "Queue has been empty for a while. Exiting the loop."
-                        )
+                        logger.log(logging.CRITICAL, "Queue has been empty for a while. Exiting the loop.")
                         break
 
                 except asyncio.CancelledError:
-                    # _print_debug_info("Subtask has been cancelled")
                     break
 
         except asyncio.CancelledError:
-            _print_debug_info("The send handler task has been cancelled")
+            logger.log(logging.DEBUG, "The send handler task has been cancelled")
             pass
 
 

@@ -1,5 +1,6 @@
 import asyncio
 from functools import wraps
+import logging
 import random
 import traceback
 from typing import Literal
@@ -14,8 +15,8 @@ import janus
 
 from .filters import SIPCompatibleMethods, SIPStatus, ConnectionType, CallState
 from .rtp import PayloadType, RTPClient, TransmitType
-from . import _print_debug_info
 from .exceptions import SIPTransferException
+from .utils.logger import logger
 
 __all__ = [ 
     'SipCall',
@@ -91,8 +92,7 @@ class SipCall:
                     raise
 
         except Exception as e:
-            print("Error: ", e)
-            traceback.print_exc()
+            logger.log(logging.ERROR, e, exc_info=True)
             return
 
         finally:
@@ -122,7 +122,7 @@ class SipCall:
         if self.dialogue.state == DialogState.PREDIALOG:
             self.sip_core.is_running.clear()
             await self.sip_core.close_connections()
-            _print_debug_info("The call has ben stopped")
+            logger.info("The call has ben stopped")
 
         elif ((self.dialogue.state == DialogState.INITIAL) or 
             (self.dialogue.state == DialogState.EARLY)):
@@ -135,9 +135,9 @@ class SipCall:
                     self.dialogue.events[DialogState.TERMINATED].wait(),
                     timeout=5
                 )
-                _print_debug_info("The call has been cancelled")
+                logger.log(logging.INFO, "The call has been cancelled")
             except asyncio.TimeoutError:
-                _print_debug_info("WARNING: The call has been cancelled with errors")
+                logger.log(logging.WARNING, "WARNING: The call has been cancelled with errors")
             finally:
                 self.sip_core.is_running.clear()
                 await self.sip_core.close_connections()
@@ -150,9 +150,9 @@ class SipCall:
                     self.dialogue.events[DialogState.TERMINATED].wait(),
                     timeout=5
                 )
-                _print_debug_info("The call has been hanged up")
+                logger.log(logging.INFO, "The call has been hanged up")
             except asyncio.TimeoutError:
-                _print_debug_info("WARNING: The call has been hanged up with errors")
+                logger.log(logging.WARNING, "WARNING: The call has been hanged up with errors")
             finally:
                 self.sip_core.is_running.clear()
                 await self.sip_core.close_connections()
@@ -160,7 +160,7 @@ class SipCall:
         elif self.dialogue.state == DialogState.TERMINATED:
             self.sip_core.is_running.clear()
             await self.sip_core.close_connections()
-            _print_debug_info(f"Call stopped!! - {reason}")
+            logger.log(logging.WARNING, "The call was already TERMINATED. stop call invoked more than once.")
             
         # finally notify the callbacks
         for cb in self._get_callbacks("hanged_up_cb"):
@@ -321,12 +321,12 @@ class SipCall:
             await self.reinvite(True, msg)
             await self.update_call_state(CallState.DAILING)
             self.dialogue.auth_retry_count += 1
-            _print_debug_info("INVITED")
+            logger.log(logging.INFO, "Sent INVITE request to the server")
 
         elif msg.status == SIPStatus(200) and msg.method == "INVITE":
             # Handling successfull invite response 
             self.dialogue.remote_tag = msg.to_tag or '' # setting it if not set
-            _print_debug_info("RE-INVITED")
+            logger.log(logging.INFO, "INVITE Successfull, dialog is established.")
             transaction = self.dialogue.add_transaction(self.sip_core.gen_branch(), "ACK")
             ack_message = self.ack_generator(transaction)
             self.dialogue.auth_retry_count = 0 # reset the auth counter
@@ -428,7 +428,6 @@ class SipCall:
         for cb in self._get_callbacks("state_changed_cb"):
             await cb(new_state)
 
-        print(self._get_callbacks("state_changed_cb"))
         self.call_state = new_state
 
     def _register_callback(self, cb_type, cb):

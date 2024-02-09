@@ -1,4 +1,3 @@
-import asyncio
 from typing import Union, Optional
 from pydub import AudioSegment
 import io

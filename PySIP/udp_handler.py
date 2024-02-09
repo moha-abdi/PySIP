@@ -1,35 +1,34 @@
 import asyncio
+import logging
 from typing import Any
-
+from .utils.logger import logger
 
 class UdpHandler(asyncio.DatagramProtocol):
     def __init__(self) -> None:
-        self.transport = None
-        self.data_q =asyncio.Queue()
+        self.transport: asyncio.DatagramTransport = None
+        self.data_q = asyncio.Queue()
         super().__init__()
 
-    def connection_made(self, transport: asyncio.DatagramTransport) -> None:
-        print("Successful UDP connection has been made.")
-        self.transport = transport  # Store the transport for later use
+    def connection_made(self, transport) -> None:
+        self.transport = transport
+        logger.log(logging.INFO, "Successful UDP connection has been made.")
 
     def connection_lost(self, exc: Exception | None) -> None:
-        print("Connection has been lost")
+        logger.log(logging.INFO, "UDP Connection has been lost")
         if self.transport:
             self.transport.close()
 
     def error_received(self, exc: Exception) -> None:
-        print("There was an error: ", exc)
+        logger.log(logging.ERROR, f"An error received: {exc}", exc_info=True)
 
     def send_message(self, message: bytes, address: tuple = None) -> None:
         if not self.transport:
-            print("Can't do! the Transport is closed!")
+            logger.log(logging.WARNING, "Unable to send message due to Transport closed")
             return
         self.transport.sendto(message)
-        # print(f"Message '{message.decode()}' sent to {address}")
 
     def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
         asyncio.ensure_future(self.data_q.put(data))
-        # print('Received: from server: ', data.decode())
 
     async def read(self):
         return await self.data_q.get()
@@ -52,7 +51,7 @@ class UdpWriter:
 
     def get_extra_info(self, name, default=None):
         if not self.protocol.transport:
-            print("Can't do! the Transport is closed!")
+            logger.log(logging.WARNING, "Can't invoke get_extra_info due to transport closed")
             return
         return self.protocol.transport.get_extra_info(name, default)
 

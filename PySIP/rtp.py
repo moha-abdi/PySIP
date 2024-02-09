@@ -1,5 +1,6 @@
 import asyncio
 from enum import Enum
+import logging
 from threading import Timer
 from typing import Callable, Dict, Optional, assert_type
 import audioop
@@ -15,7 +16,7 @@ from scipy.io import wavfile
 
 from PySIP.call_handler import AudioStream
 from PySIP.utils.inband_dtmf import dtmf_decode
-from . import _print_debug_info
+from .utils.logger import logger
 from .filters import PayloadType
 
 __all__ = [
@@ -234,13 +235,13 @@ class RTPClient:
         # Example: {0: PayloadType.PCMU, 101: PayloadType.EVENT}
         self.assoc = assoc
         self.preference = None
-        _print_debug_info("Selecting audio codec for transmission")
+        logger.log(logging.INFO, "Selecting audio codec for transmission")
         for m in assoc:
             try:
                 if int(assoc[m]) is not None:
                     if assoc[m] not in SUPPORTED_CODEC:
                         continue
-                    _print_debug_info(f"Selected {assoc[m]}")
+                    logger.log(logging.INFO, f"Selected audio codec -> {assoc[m]}")
                     """
                     Select the first available actual codec to encode with.
                     TODO: will need to change if video codecs
@@ -249,7 +250,7 @@ class RTPClient:
                     self.preference = assoc[m]
                     break
             except Exception:
-                _print_debug_info(f"{assoc[m]} cannot be selected as an audio codec")
+                logger.log(logging.ERROR, f"{assoc[m]} cannot be selected as an audio codec", exc_info=True)
 
         self.is_dtmf_supported = any(payload_type == PayloadType.EVENT for payload_type in assoc.values())
         if not self.preference:
@@ -259,7 +260,7 @@ class RTPClient:
         self.inPort = inPort
         self.outIP = outIP
         self.outPort = outPort
-        _print_debug_info(f"Sending from: {self.inIP}:{self.inPort}\nsending to: {self.outIP}:{self.outPort}")
+        logger.log(logging.DEBUG, f"Sending from: {self.inIP}:{self.inPort} -- Sending to: {self.outIP}:{self.outPort}")
 
         self.dtmf = dtmf
         self.loop = loop
@@ -335,7 +336,7 @@ class RTPClient:
         self.RTCP.close()
         self.sin.close()
         self.sout.close()
-        print("Closed all RTP/RTCP sockets..")
+        logger.log(logging.INFO, "Successfully closed all RTP/RTCP sockets..")
 
     def read(self, length: int = 160, blocking: bool = True) -> bytes:
         if not blocking:
@@ -358,17 +359,17 @@ class RTPClient:
             except BlockingIOError:
                 time.sleep(0.01)
             except RTPParseError as e:
-                _print_debug_info(str(e))
+                logger.log(logging.ERROR, e, exc_info=True)
             except OSError:
                 pass
 
     def send_from_source(self, source: AudioStream):
-        _print_debug_info("started to send from src with id: ", source)
+        logger.log(logging.DEBUG, f"Started to send from steam source with id: {source}")
 
         try:
             while True:
                 if source.should_stop_streaming.is_set():
-                    _print_debug_info("Sent partial frames. [DRAINED]")
+                    logger.log(logging.DEBUG, f"Sent partial frames. [DRAINED], stopped sending from source with id: {source}")
                     if not source.audio_sent_future.done():
                         self.loop.call_soon_threadsafe(source.audio_sent_future.set_result, "Done")
 
@@ -376,7 +377,7 @@ class RTPClient:
 
                 payload = source.readframes(160)
                 if not payload:
-                    _print_debug_info("Sent all frames.")
+                    logger.log(logging.DEBUG, f"Sent all frames from source with id: {source}.")
                     if not source.audio_sent_future.done():
                         self.loop.call_soon_threadsafe(source.audio_sent_future.set_result, "Done")
                     break
@@ -405,10 +406,10 @@ class RTPClient:
                 time.sleep(0.02)
 
         except KeyboardInterrupt:
-            _print_debug_info("Interrupted by user.")
+            logger.log(logging.ERROR, f"KeyboardInterrupt while sending from source with id: {source}")
 
-        except OSError:
-                pass
+        except OSError as e:
+            logger.log(logging.ERROR, e, exc_info=True)
 
         finally:
             source.close()
@@ -437,12 +438,7 @@ class RTPClient:
             try:
                 self.sout.sendto(packet, (self.outIP, self.outPort))
             except OSError as e:
-                print("THis oserror occured: ", e)
-                warnings.warn(
-                    "RTP Packet failed to send!",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
+                logger.log(logging.WARNING, f"Failed to send RTP Packet due to: {e}") 
 
             self.outSequence += 1
             self.outTimestamp += len(payload)
@@ -470,7 +466,7 @@ class RTPClient:
                     dtmf_digits = dtmf_decode(self.buffer, self.preference.rate)
                     if dtmf_digits:
                         for code in dtmf_digits:
-                            _print_debug_info(str(code))
+                            logger.log(logging.DEBUG, f"INBAND DTMF Key detected -> {code}")
                             if self.dtmf is not None:
                                 self.dtmf(str(code))
 
@@ -620,7 +616,7 @@ class RTPClient:
         """
 
         if packet.marker:
-            # _print_debug_info(event)
+            logger.log(logging.DEBUG, f"RFC 2833 DTMF Key detected -> {event}")
             if self.dtmf is not None:
                 self.dtmf(event)
 

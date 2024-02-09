@@ -1,100 +1,54 @@
-from PySIP.call import VOIP
-from PySIP.call_handler import CallHandler
 import asyncio
-from scripts.BankOTP import call_flow as BankOTPcall
+from PySIP.sip_call import SipCall
+from PySIP.sip_client import SipClient
+from PySIP.sip_core import DialogState
 
-
-# voip = VOIP(
-#     username="michel2",
-#     route="109.207.170.23:5060",
-#     connection_type="UDP",
-#     from_tag="18005604417",
-#     password="pass1234",
+client = SipClient(
+    '111',
+    '192.168.1.112:5060',
+    'UDP',
+    '12345678'
+)
+#
+# client2 = SipClient(
+#     '3001',
+#     '192.168.1.112:5060',
+#     'UDP',
+#     '30013001'
 # )
-voip = VOIP(
-    username="111",
-    route="192.168.1.112:5060",
-    connection_type="UDP",
-    from_tag="111",
-    password="12345678",
+
+call = SipCall(
+    '111',
+    '12345678', 
+    '192.168.1.112:5060',
+    '3001'
 )
 
-# voip = VOIP(
-#     "12035473096",
-#     "talk.waafi.com:2382",
-#     connection_type="TLSv1",
-#     password="etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==",
-# )
+@call.on_call_state_changed
+async def call_state_changed(state):
+    print("the call was hanged up: ", state)
 
-call_handler = CallHandler(voip)
+async def stop_client(client_):
+    await asyncio.sleep(19)
+    await client_.stop()
+    return
 
+async def answered(event):
+    print(event)
+    await event.wait()
+    print("Call has been answered my boy")
 
-async def call_flow() -> None:
-    await call_handler.say("Hello and welcome to PySIP")
-    await call_handler.sleep(3.0)
-    await call_handler.say("How are you doing today")
-    await call_handler.say("Please type 55 to continue this call")
-
-    dtmf_result_found = False
-    for _ in range(3):
-        try:
-            dtmf_result = await call_handler.gather(length=2, timeout=8.0)
-
-            if dtmf_result == 55:
-                await call_handler.say("Thank you your code is correct, good bye")
-                print(dtmf_result)
-                dtmf_result_found = True
-                break
-            else:
-                await call_handler.say("Incorrect code please try again")
-                continue
-
-        except asyncio.TimeoutError:
-            await call_handler.say("You did not click am keys, please try again")
-
-    if not dtmf_result_found:
-        await call_handler.say("You failed to ented the code, good bye")
-
-    stream_id = await call_handler.say("hanging up")
-    await stream_id.flush()  # This is only required on the last message and its important beause it makes sure to wait for the last message to be sent before hanging up, otherwise we would not hear the last messahe
-    await call_handler.hangup()
-
-async def call_flow_new():
-    await call_handler.sleep(4)
-    stream_id = await call_handler.say("This long statements will stop if you presss 1. Please try it and press one. When you press one it stops")
-    try:
-        dtmf_result = await call_handler.gather(length=1, timeout=5.0)
-        if dtmf_result == 1:
-            await stream_id.drain()
-            stream_id = await call_handler.say("Previous audio interrupted")
-            await stream_id.flush()
-
-        else:
-            await stream_id.drain()
-            stream_id = await call_handler.say("Incorrect key ending the call")
-            await stream_id.flush()
-
-    except asyncio.TimeoutError:
-        await stream_id.drain()
-        stream_id = await call_handler.say("time out ending the call")
-        await stream_id.flush()
-
-    await call_handler.hangup()
-    
 async def main():
-    # Run the voip.call asynchronously
-    asyncio.get_event_loop().set_debug(False)
-    call_task = asyncio.create_task(voip.call("3001"))
+    asyncio.get_event_loop().set_debug(True)
+    client_task = asyncio.create_task(client.run())
+    stop_task = asyncio.create_task(stop_client(client))
+    #
+    # client2_task = asyncio.create_task(client2.run())
+    # stop2_task = asyncio.create_task(stop_client(client2))
+    #
+    call_task = asyncio.create_task(call.start())
+    stop3_task = asyncio.create_task(stop_client(call))
 
-    # Concurrently run other tasks
-    call_handler_task = asyncio.create_task(BankOTPcall(call_handler))
-    send_handler = asyncio.create_task(call_handler.send_handler())
-
-    # Wait for all tasks to complete 
-    await asyncio.gather(call_task, call_handler_task, send_handler, return_exceptions=True)
-
-    if voip.received_bytes:
-        print(f"Recorded audio saved to {call_handler.call_id}.mp3")
-
+    await asyncio.gather(client_task, stop_task, call_task, stop3_task)
 
 asyncio.run(main())
