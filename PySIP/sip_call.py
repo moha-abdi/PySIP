@@ -397,6 +397,16 @@ class SipCall:
         await self.sip_core.send(msg)
         return
 
+    def _register_callback(self, cb_type, cb):
+        self._callbacks.setdefault(cb_type, []).append(cb)
+
+    def _get_callbacks(self, cb_type):
+        return self._callbacks.get(cb_type, [])
+
+    def _remove_callback(self, cb_type, cb):
+        callbacks = self._callbacks.get(cb_type, [])
+        if cb in callbacks:
+            callbacks.remove(cb)
 
 class TTS:
     def __init__(
