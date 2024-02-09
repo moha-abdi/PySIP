@@ -1,4 +1,5 @@
 import asyncio
+from functools import wraps
 import random
 import traceback
 from typing import Literal
@@ -64,12 +65,15 @@ class SipCall:
         self.callee = callee
         self.sip_core = SipCore(self.username, route, connection_type, password)
         self.sip_core.on_message_callbacks.append(self.message_handler)
+        self.sip_core.on_message_callbacks.append(self.error_handler)
+        self._callbacks = {}
         self.call_id = self.sip_core.gen_call_id()
         self.cseq_counter = Counter(random.randint(1, 2000))
         self.CTS = 'TLS' if 'TLS' in connection_type else connection_type
         self.my_public_ip = self.sip_core.get_public_ip()
         self.my_private_ip = self.sip_core.get_local_ip()
         self.dialogue = SipDialogue(self.call_id, self.sip_core.generate_tag(), '')
+        self.call_state = CallState.INITIALIZING
 
     async def start(self):
         call_task = None
@@ -315,6 +319,7 @@ class SipCall:
                 return
             # Then send reinvite with Authorization
             await self.reinvite(True, msg)
+            await self.update_call_state(CallState.DAILING)
             self.dialogue.auth_retry_count += 1
             _print_debug_info("INVITED")
 
@@ -326,15 +331,19 @@ class SipCall:
             ack_message = self.ack_generator(transaction)
             self.dialogue.auth_retry_count = 0 # reset the auth counter
             await self.sip_core.send(ack_message)
+            await self.update_call_state(CallState.ANSWERED)
 
         elif str(msg.status).startswith('1') and msg.method == "INVITE":
             # Handling 1xx profissional responses
+            st = CallState.RINGING if msg.status is SIPStatus(180) else CallState.DAILING
+            await self.update_call_state(st)
             self.dialogue.remote_tag = msg.to_tag or '' # setting it if not already
             self.dialogue.auth_retry_count = 0 # reset the auth counter
             pass
 
         elif msg.method == "BYE" and not msg.is_from_client(self.username):
             # Hanlding callee call hangup
+            await self.update_call_state(CallState.ENDED)
             if not str(msg.data).startswith('BYE'):
                 # Seperating BYE messges from 200 OK to bye messages or etc.
                 self.dialogue.update_state(msg)
@@ -343,17 +352,23 @@ class SipCall:
             await self.sip_core.send(ok_message)
             await self.stop("Callee hanged up")
 
+        elif msg.method == "BYE" and msg.is_from_client(self.username):
+            await self.update_call_state(CallState.ENDED)
+
         elif msg.status == SIPStatus(487) and msg.method == "INVITE":
             transaction = self.dialogue.find_transaction(msg.branch)
             if not transaction:
                 return
             ack_message = self.ack_generator(transaction)
             await self.sip_core.send(ack_message)
+            await self.update_call_state(CallState.FAILED)
 
         # Finally update status and fire events
         self.dialogue.update_state(msg)
 
     async def error_handler(self, msg: SipMessage):
+        if not msg.status:
+            return
 
         if not 400 <= msg.status.code <= 699:
             return
@@ -406,6 +421,16 @@ class SipCall:
         await self.sip_core.send(msg)
         return
 
+    async def update_call_state(self, new_state):
+        if new_state == self.call_state:
+            return
+
+        for cb in self._get_callbacks("state_changed_cb"):
+            await cb(new_state)
+
+        print(self._get_callbacks("state_changed_cb"))
+        self.call_state = new_state
+
     def _register_callback(self, cb_type, cb):
         self._callbacks.setdefault(cb_type, []).append(cb)
 
@@ -423,6 +448,14 @@ class SipCall:
             return await func(reason)
         self._register_callback("hanged_up_cb", wrapper) 
         return wrapper
+
+    def on_call_state_changed(self, func):
+        @wraps(func)
+        async def wrapper(new_state):
+            return await func(new_state)
+        self._register_callback("state_changed_cb", wrapper)
+        return wrapper
+
 
 class TTS:
     def __init__(

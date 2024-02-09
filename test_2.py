@@ -24,8 +24,12 @@ call = SipCall(
     '3001'
 )
 
+@call.on_call_state_changed
+async def call_state_changed(state):
+    print("the call was hanged up: ", state)
+
 async def stop_client(client_):
-    await asyncio.sleep(9)
+    await asyncio.sleep(19)
     await client_.stop()
     return
 

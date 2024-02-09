@@ -170,3 +170,7 @@ async def main():
         dialog.events[DialogState.TERMINATED].wait(),
         dialog.simulate_processing()
     )
+
+s = SIPStatus(100)
+
+assert s in [SIPStatus(180), SIPStatus(180)]
