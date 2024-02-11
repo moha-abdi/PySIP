@@ -244,7 +244,7 @@ class SipClient:
 
         elif msg.status == SIPStatus(200) and msg.method == "REGISTER":
             # This is when we receive the response for the register
-            logger.log(logging.INFO, "Successfully REGISTERATION")
+            logger.log(logging.INFO, "Successfully REGISTERED")
 
             # In case the response is of Un-register we set this
             if self.register_tags['type'] == "UNREGISTER":
@@ -252,7 +252,7 @@ class SipClient:
                     self.unregistered.set()
 
         elif msg.data.startswith("OPTIONS"): # If we recieve PING then PONG incase of keep-alive required
-            logging.log(logging.DEBUG, "Keep-alive message received from the server. sending OK")
+            logger.log(logging.DEBUG, "Keep-alive message received from the server. sending OK")
             options_ok = self.ok_generator(msg)
             await self.sip_core.send(options_ok)
 

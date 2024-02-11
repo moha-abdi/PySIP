@@ -24,4 +24,4 @@ __license__ = "MIT License"
 __copyright__ = "Copyright (C) 2023-present Moha"
 
 
-console_handler.setLevel(logging.INFO) 
+console_handler.setLevel(logging.DEBUG) 

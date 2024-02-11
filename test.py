@@ -26,7 +26,12 @@ call = SipCall(
 
 @call.on_call_state_changed
 async def call_state_changed(state):
-    print("the call was hanged up: ", state)
+    pass
+
+@call.on_call_hanged_up
+async def call_stopped(reason):
+    pass
+
 
 async def stop_client(client_):
     await asyncio.sleep(19)

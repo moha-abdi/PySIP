@@ -137,7 +137,7 @@ class SipCall:
                 )
                 logger.log(logging.INFO, "The call has been cancelled")
             except asyncio.TimeoutError:
-                logger.log(logging.WARNING, "WARNING: The call has been cancelled with errors")
+                logger.log(logging.WARNING, "The call has been cancelled with errors")
             finally:
                 self.sip_core.is_running.clear()
                 await self.sip_core.close_connections()
@@ -152,7 +152,7 @@ class SipCall:
                 )
                 logger.log(logging.INFO, "The call has been hanged up")
             except asyncio.TimeoutError:
-                logger.log(logging.WARNING, "WARNING: The call has been hanged up with errors")
+                logger.log(logging.WARNING, "The call has been hanged up with errors")
             finally:
                 self.sip_core.is_running.clear()
                 await self.sip_core.close_connections()
@@ -164,6 +164,7 @@ class SipCall:
             
         # finally notify the callbacks
         for cb in self._get_callbacks("hanged_up_cb"):
+            logger.log(logging.DEBUG, f"The call has been hanged up due to: {reason}")
             await cb(reason)
 
     def generate_invite_message(self, auth=False, received_message=None):
@@ -429,6 +430,7 @@ class SipCall:
             await cb(new_state)
 
         self.call_state = new_state
+        logger.log(logging.DEBUG, f"Call state changed to -> {new_state}")
 
     def _register_callback(self, cb_type, cb):
         self._callbacks.setdefault(cb_type, []).append(cb)
