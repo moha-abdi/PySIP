@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Tuple
 from .utils.logger import logger
 
 class UdpHandler(asyncio.DatagramProtocol):
@@ -56,11 +56,12 @@ class UdpWriter:
         return self.protocol.transport.get_extra_info(name, default)
 
 
-async def open_udp_connection(host: str, port: int):
+async def open_udp_connection(local_addr: Tuple[str, int], remote_addr: Tuple[str, int]=None):
     loop = asyncio.get_event_loop()
     transport, protocol = await loop.create_datagram_endpoint(
         lambda: UdpHandler(),
-        remote_addr=(host, port)
+        local_addr,
+        remote_addr
     )
     reader = UdpReader(protocol)
     writer = UdpWriter(protocol)

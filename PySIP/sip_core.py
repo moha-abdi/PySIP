@@ -133,8 +133,7 @@ class SipCore:
                 self.is_running.set()
 
                 self.udp_reader, self.udp_writer = await open_udp_connection(
-                    self.server,
-                    self.port
+                    (self.server, self.port)
                 )
 
             elif self.connection_type == ConnectionType.TLS:
