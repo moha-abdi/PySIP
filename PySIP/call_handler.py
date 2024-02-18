@@ -1,23 +1,27 @@
 import asyncio
 import logging
-from typing import List
+from typing import List, Optional
 from wave import Wave_read
 
-from .utils.logger import logger
+from pydub import AudioSegment
+from scipy.io.wavfile import io
+
 from .filters import CallState
-from .CustomCommuicate import CommWithPauses
+from .audio_stream import AudioStream
 from .utils.async_utils import wait_for
+from .utils.logger import logger
+from .utils.edge_tts_utils import CommWithPauses
 from .exceptions import SIPTransferException
 
 
 class CallHandler:
     def __init__(self, call) -> None:
         self.call = call
-        self.audio_queue = asyncio.Queue()
-        self.previous_stream: AudioStream = None
+        self.audio_queue: asyncio.Queue = asyncio.Queue()
+        self.previous_stream: Optional[AudioStream] = None
 
     async def say(self, text: str):
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
         try:
@@ -27,30 +31,41 @@ class CallHandler:
             return self.audio_stream
 
         except Exception as e:
-            pass
+            logger.log(logging.ERROR, "Error in say: ", e)
+            raise e
 
-    async def play(self, input_audio: bytes):
+    async def play(self, file_name: str, format: str = 'wav'):
         """Simple method to play an audio in call"""
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
-        self.audio_stream = AudioStream(input_audio)
-        await self.audio_queue.put(AudioStream(input_audio))
+        temp_file = io.BytesIO()
+        try:
+            decoded_chunk: AudioSegment = AudioSegment.from_file(file_name, format=format)
+        except Exception as e: 
+            raise e
+        decoded_chunk = decoded_chunk.set_channels(1)
+        decoded_chunk = decoded_chunk.set_frame_rate(8000)        
+        decoded_chunk.export(temp_file, format='wav')
+
+        self.audio_stream = AudioStream(temp_file, self)
+        await self.audio_queue.put(("audio", self.audio_stream))
 
         return self.audio_stream
 
     async def gather(
-        self, length: int = 1, timeout: float = 7.0, finish_on_key=None
-    ) -> int:
+        self, length: int = 1, timeout: float = 7.0, finish_on_key=None, stream=None
+    ):
         """This method gathers a dtmf tone with the specified
         length and then returns when done"""
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
-        dtmf_future = asyncio.Future()
+        dtmf_future: asyncio.Future = asyncio.Future()
         dtmf_future.__setattr__("length", length)
         dtmf_future.__setattr__("timeout", timeout)
         dtmf_future.__setattr__("finish_on_key", finish_on_key)
+        dtmf_future.__setattr__("stream", stream)
         await self.audio_queue.put(("dtmf", dtmf_future))
 
         try:
@@ -63,8 +78,9 @@ class CallHandler:
                     await dtmf_future
                 except asyncio.CancelledError:
                     pass
-                
-            if asyncio.current_task().cancelling() > 0:
+            
+            _task = asyncio.current_task()
+            if (_task is not None) and  _task.cancelling() > 0:
                 raise
 
     async def gather_and_say(
@@ -78,7 +94,7 @@ class CallHandler:
     ):
         """This method waits for dtmf keys and then if received
         it instantly send it"""
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
         dtmf_result = None
@@ -101,7 +117,50 @@ class CallHandler:
             or f"You failed to enter the key in {loop} tries. Hanging up the call"
         )
         stream = await self.say(text)
-        await stream.flush()
+        await stream.wait_finished()
+
+        return dtmf_result
+
+    async def gather_and_play(
+        self,
+        file_name: str,
+        format: str = 'wav',
+        length: int = 1,
+        delay: int = 7,
+        loop: int = 3,
+        finish_on_key=None,
+        loop_audio_file: str = "",
+        delay_audio_file: str = "",
+    ):
+        """This method waits for dtmf keys and then if received
+        it instantly send it"""
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
+            self.call.client.pysip_tasks.append(asyncio.current_task())
+
+        dtmf_result = None
+        for _ in range(loop):
+            try:
+                stream = await self.play(file_name, format)
+                dtmf_result = await self.gather(
+                    length=length, timeout=delay, finish_on_key=finish_on_key,
+                    stream=stream
+                )
+                if dtmf_result:
+                    dtmf_result = dtmf_result
+                    return dtmf_result
+
+            except asyncio.TimeoutError:
+                if delay_audio_file:
+                    await self.play(delay_audio_file, format=format)
+                else:
+                    await self.say("You did not any keys please try again")
+                continue
+
+        if loop_audio_file:
+            stream = await self.play(loop_audio_file, format=format)
+        else:
+            stream = await self.say(f"You failed to enter the key in {loop} tries. Hanging up the call")
+        await stream.wait_finished()
 
         return dtmf_result
 
@@ -111,7 +170,7 @@ class CallHandler:
         Args:
             to (str|int): The target phone number to transfer the call to.
         """
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
         self.refer_future: asyncio.Future = self.call.refer_future
@@ -133,13 +192,13 @@ class CallHandler:
         
 
     async def sleep(self, delay: float):
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
         await self.audio_queue.put(("sleep", delay))
 
     async def hangup(self):
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
         if self.call.rtp_session:
@@ -165,7 +224,7 @@ class CallHandler:
     async def send_handler(self):
         try:
             self.call.client.pysip_tasks.append(asyncio.current_task())
-            logger.log(logging.INFO, "CallHandler has been initialized.")
+            logger.log(logging.INFO, "CallHandler has been initialized..")
             empty_queue_count = 0  # Counter for consecutive empty queue checks
 
             while True:
@@ -184,11 +243,12 @@ class CallHandler:
                     event_type, result = await asyncio.wait_for(
                         self.audio_queue.get(), timeout=1.0
                     )
+                    # _print_debug_info(f"Q is got, type {event_type}")
                     empty_queue_count = 0  # Reset the counter if an item is retrieved
 
                     if event_type == "audio":
                         if self.previous_stream:
-                            await self.previous_stream.flush()
+                            await self.previous_stream.wait_finished()
 
                         asyncio.get_event_loop().run_in_executor(
                             None, self.call.rtp_session.send_now, result
@@ -203,11 +263,13 @@ class CallHandler:
                         result.should_stop_streaming.set()
 
                     elif event_type == "dtmf":
+                        stream = None
                         try:
                             length = result.length
                             timeout = result.timeout
                             finish_on_key = result.finish_on_key
-                            logger.log(logging.DEBUG, "Waiting for DTMF Key")
+                            stream = result.stream
+                            logger.log(logging.INFO, "Started to wait for DTMF")
                             awaitable = None
 
                             if self.previous_stream:
@@ -223,16 +285,24 @@ class CallHandler:
                                 timeout,
                                 awaitable
                             )
+                            self.previous_stream = stream
+                            if stream:
+                                await stream.drain()
                             result.set_result(dtmf_result)
-                            self.previous_stream = None
 
                         except asyncio.TimeoutError:
+                            self.previous_stream = stream
+                            if stream:
+                                await stream.drain()
                             result.set_exception(asyncio.TimeoutError)
 
                 except asyncio.TimeoutError:
                     empty_queue_count += 1
                     if empty_queue_count >= 10:
-                        logger.log(logging.CRITICAL, "Queue has been empty for a while. Exiting the loop.")
+                        logger.log(
+                            logging.WARNING,
+                            "Queue has been empty for a while. Exiting the loop."
+                        )
                         break
 
                 except asyncio.CancelledError:
@@ -242,34 +312,3 @@ class CallHandler:
             logger.log(logging.DEBUG, "The send handler task has been cancelled")
             pass
 
-
-class AudioStream(Wave_read):
-    def __init__(self, f, instance: CallHandler = None) -> None:
-        self.audio_sent_future = asyncio.Future()
-        self.should_stop_streaming = asyncio.Event()
-        self.instance = instance
-        super().__init__(f)
-
-        self.audio_length = self.getnframes() / float(self.getframerate())
-
-    @property
-    def audio_length(self):
-        """The audio_length property."""
-        return self._audio_length
-
-    @audio_length.setter
-    def audio_length(self, value):
-        self._audio_length = value
-
-    async def drain(self):
-        """This ensures that any remains of the current stream is dropped"""
-        if self.instance:
-            await self.instance.audio_queue.put(("drain", self))
-            return
-        self.should_stop_streaming.set()
-
-    async def flush(self):
-        await self.audio_sent_future
-
-    def __repr__(self) -> str:
-        return str(id(self))
