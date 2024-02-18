@@ -16,3 +16,6 @@ class NoSupportedCodecsFound(Exception):
         super().__init__(*args)
 
 
+class AudioStreamError(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
