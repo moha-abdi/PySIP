@@ -56,42 +56,113 @@ class RTPClient:
         self.dst_port = dst_port
         self.transmit_type = transmit_type
         self.selected_codec = self.select_audio_codecs(offered_codecs)
-        self.udp_reader, self.udp_writter = None, None
+        self.udp_reader, self.udp_writer = None, None
         self.send_lock = asyncio.Lock()
-        self.rtp_packet = RtpPacket(self.selected_codec)
         self.is_running = asyncio.Event()
-        self._input_queue = asyncio.Queue()
-        self._output_queue = asyncio.Queue()
+        self._input_queue: asyncio.Queue = asyncio.Queue()
+        self._output_queues: Dict[str, asyncio.Queue] = {'audio_record': asyncio.Queue()}
         self._audio_stream: Optional[AudioStream] = None
+        self.__encoder = get_encoder(self.selected_codec)
+        self.__decoder = get_decoder(self.selected_codec)
+        self.ssrc = ssrc
+        self.__timestamp = random.randint(2000, 8000)
+        self.__sequence_number = random.randint(200, 800)
+        self.__jitter_buffer = JitterBuffer(16, 4)
+        self.__callbacks = callbacks
 
-    async def start(self):
+    async def _start(self):
         self.is_running.set()
+        logger.log(
+            logging.DEBUG,
+            f"Establishing RTP Connection with: LOCAL_IP: {self.src_ip} : LOCAL_PORT {self.src_port} -- SERVER_IP: {self.dst_ip} : SERVER_PORT {self.dst_port}",
+        )
         self.udp_reader, self.udp_writer = await open_udp_connection(
-            (self.src_ip, self.src_port), (self.dst_port, self.dst_port)
+            (self.dst_ip, self.dst_port), (self.src_ip, self.src_port)
         )
 
-    def select_audio_codecs(self, offered_codecs):
+        send_task = asyncio.create_task(self.send(), name="Rtp Send Task")
+        receive_task = asyncio.create_task(self.receive(), name="Rtp receive Task")
+        frame_monitor_task = asyncio.create_task(self.frame_monitor(), name="Frame Monitor Task")
+
+        try:
+            await asyncio.gather(send_task, receive_task, frame_monitor_task)
+        except asyncio.CancelledError:
+            if send_task.done():
+                pass
+            if receive_task.done():
+                pass
+            if frame_monitor_task.done():
+                pass
+
+            _task = asyncio.current_task()
+            if _task and _task.cancelling() > 0:
+                raise
+        except Exception as e:
+            logger.log(logging.ERROR, e, exc_info=True)
+
+        finally:
+            if not send_task.done():
+                send_task.cancel()
+                try:
+                    await send_task
+                except asyncio.CancelledError:
+                    pass
+
+            if not receive_task.done():
+                receive_task.cancel()
+                try:
+                    await receive_task
+                except asyncio.CancelledError:
+                    pass
+
+            if not frame_monitor_task.done():
+                frame_monitor_task.cancel()
+                try:
+                    await frame_monitor_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def _stop(self):
+        # close the connections
+        if not self.udp_writer.protocol.transport:
+            logger.log(logging.WARNING, "Couldnt stop RTP due to Udp transport")
+            return
+        if self.udp_writer.protocol.transport.is_closing():
+            logger.log(
+                logging.WARNING, "Couldnt stop RTP, transport is already closing."
+            )
+            return
+        self.udp_writer.protocol.transport.close()
+        self.is_running.clear()
+        if s := self.get_audio_stream():
+            s.stream_done()
+        logger.log(logging.DEBUG, "Rtp Handler Succesfully stopped.")  
+
+    async def _wait_stopped(self):
+        while True:
+            if not self.is_running.is_set():
+                break
+
+            await asyncio.sleep(0.1)
+
+    def select_audio_codecs(self, offered_codecs) -> CodecInfo:
         for codec in offered_codecs.values():
-            if codec in SUPPORTED_CODEC:
+            if codec in CODECS:
                 return codec
 
         raise NoSupportedCodecsFound
 
+    def generate_silence_frames(self, sample_width = 2, nframes = 160):
+        # Generate silence sound data or mimic sound data
+        return b"\x00" * (sample_width * nframes)
+
     def is_rfc_2833_supported(self, offered_codecs):
         for codec in offered_codecs.values():
-            if codec == PayloadType.EVENT:
+            if codec == CodecInfo.EVENT:
                 return True
 
         return False
 
-    async def send(self):
-        if self.get_audio_stream:
-            logger.log(
-                logging.DEBUG, f"Started to send from steam source with id: {self.get_audio_stream.stream_id}"
-            )
-        else:
-            logger.log(logging.WARNING, "No stream to send from")
-            raise AudioStreamError
     async def _handle_rfc_2833(self, packet):
         dtmf_mapping = [
         "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#", "A", "B", "C", "D"
