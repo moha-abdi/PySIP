@@ -12,6 +12,21 @@ from .filters import PayloadType
 
 
 SUPPORTED_CODEC = [PayloadType.PCMU, PayloadType.PCMA]
+def decoder_worker(input_data, output_qs, loop):
+    codec, encoded_frame = input_data
+    if not encoded_frame:
+        for output_q in output_qs.values():
+            asyncio.run_coroutine_threadsafe(output_q.put(None), loop)
+        return
+
+    decoder = get_decoder(codec)
+    if not decoder:
+        logger.log(logging.WARNING, f"No decoder found for codec: {codec}")
+        return
+
+    decoded_frame = decoder.decode(encoded_frame.data)
+    for output_q in output_qs.values():
+        asyncio.run_coroutine_threadsafe(output_q.put(decoded_frame), loop)
 
 
 class RTPProtocol(Enum):
