@@ -55,3 +55,20 @@ y = 65537
 print((x + y) & 65535)
 print((x + y) % 65535)
 print(1 + -2)
+
+
+class Test:
+    def __init__(self, x) -> None:
+        self._ret_st = None 
+
+    @property
+    def ret_st(self):
+        return self._ret_st
+
+    @ret_st.setter
+    def ret_st(self, value):
+        self._ret_st = value
+
+t = Test("duh")
+t.ret_st
+

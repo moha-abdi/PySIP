@@ -10,7 +10,6 @@ __all__ = [
     'TypeFilter',
     'SipFilter',
     'SIPStatus', 
-    'PayloadType'
 ]
 
 SIPCompatibleMethods = ["INVITE", "ACK", "BYE", "CANCEL", "UPDATE",

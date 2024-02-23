@@ -1,17 +1,28 @@
 import asyncio
+import audioop
 from enum import Enum
 import logging
 import random
-from typing import Optional
+from struct import unpack, unpack_from
+import time
+from typing import Callable, Dict, List, Optional, Union
+import wave
 
 from PySIP.exceptions import AudioStreamError, NoSupportedCodecsFound
+from PySIP.jitter_buffer import JitterBuffer
 from .audio_stream import AudioStream
 from .udp_handler import open_udp_connection
 from .utils.logger import logger
-from .filters import PayloadType
+from .codecs import get_encoder, get_decoder, CODECS
+from .codecs.codec_info import CodecInfo
 
 
-SUPPORTED_CODEC = [PayloadType.PCMU, PayloadType.PCMA]
+MAX_WAIT_FOR_STREAM = 40  # seconds
+RTP_HEADER_LENGTH = 12
+RTP_PORT_RANGE = range(10_000, 20_000)
+SEND_SILENCE = True # send silence frames when no stream
+
+
 def decoder_worker(input_data, output_qs, loop):
     codec, encoded_frame = input_data
     if not encoded_frame:
@@ -47,7 +58,8 @@ class TransmitType(Enum):
 
 class RTPClient:
     def __init__(
-        self, offered_codecs, src_ip, src_port, dst_ip, dst_port, transmit_type
+        self, offered_codecs, src_ip, src_port, dst_ip, dst_port, transmit_type, ssrc,
+        callbacks: Optional[Dict[str, List[Callable]]] = None
     ):
         self.offered_codecs = offered_codecs
         self.src_ip = src_ip
@@ -183,29 +195,63 @@ class RTPClient:
         for cb in callbacks:
             await cb(event)
 
+    async def send(self):
         while True:
-            start_processing = asyncio.get_event_loop().time()
-            payload = await self.get_audio_stream.input_q.get()
-            # if all frames are sent then break
-            if not payload:
-                logger.log(
-                    logging.DEBUG, f"Sent all frames from source with id: {source}."
-                )
-                self.get_audio_stream.audio_sent_future.set_result("Sent all frames")
+            start_processing = time.monotonic_ns()
+
+            if not self.is_running.is_set():
+                logger.log(logging.DEBUG, "Succesfully stopped the sender worker")
                 break
 
-            packet = self.rtp_packet.generate_packet(payload)
+            audio_stream = self.get_audio_stream()
+            if not audio_stream and not SEND_SILENCE:
+                await asyncio.sleep(0.02)  # avoid busy-waiting
+                continue
+
+            try:
+                if audio_stream is None:
+                    payload = self.generate_silence_frames()
+                else:
+                    payload = audio_stream.input_q.get_nowait()
+            except asyncio.QueueEmpty:
+                await asyncio.sleep(0.02)
+                continue
+
+            # if all frames are sent then continue
+            if not payload:
+                await asyncio.sleep(0)
+                if audio_stream is None:
+                    continue
+                logger.log(
+                    logging.DEBUG,
+                    f"Sent all frames from source with id: {audio_stream.stream_id}",
+                )
+                audio_stream.stream_done()
+                continue
+
+            encoded_payload = self.__encoder.encode(payload)
+            packet = RtpPacket(
+                payload_type=self.selected_codec,
+                payload=encoded_payload,
+                sequence_number=self.__sequence_number,
+                timestamp=self.__timestamp,
+                ssrc=self.ssrc,
+            ).serialize()
             await self.udp_writer.write(packet)
 
             delay = (1 / self.selected_codec.rate) * 160
-            processing_time = asyncio.get_event_loop().time() - start_processing
-            sleep_time = max(0, delay - processing_time) / 1.75
+            processing_time = (time.monotonic_ns() - start_processing) / 1e9
+            sleep_time = delay - processing_time
+            self.__sequence_number = (self.__sequence_number + 1) % 65535  # Wrap around at 2^16 - 1
+            self.__timestamp = (self.__timestamp + len(encoded_payload)) % 4294967295  # Wrap around at 2^32 -1
 
             await asyncio.sleep(sleep_time)
 
     async def receive(self):
         while True:
+            await asyncio.sleep(0.01)
             if not self.is_running.is_set():
+                logger.log(logging.DEBUG, "Receiver handler stopped.")
                 break
 
             if not self.udp_reader:
@@ -213,9 +259,31 @@ class RTPClient:
                 return
             try:
                 data = await asyncio.wait_for(self.udp_reader.read(4096), 0.5)
+                packet = RtpPacket.parse(data)
+
+                if packet.payload_type == CodecInfo.EVENT:
+                    # handle rfc 2833 
+                    await self._handle_rfc_2833(packet)
+                    continue
+
+                if packet.payload_type not in CODECS:
+                    logger.log(logging.WARNING, f"Unsupported codecs received, {packet.payload_type}")
+                    continue
+                encoded_frame = self.__jitter_buffer.add(packet) 
+
+                # if we have enough encoded buffer then decode
+                if encoded_frame:
+                    loop = asyncio.get_event_loop()
+                    loop.run_in_executor(None, decoder_worker, (packet.payload_type, encoded_frame), self._output_queues, loop)
+
             except asyncio.TimeoutError:
                 continue  # this is neccesary to avoid blocking of checking
                 # whether app is runing or not
+
+        # finally put None in to the q to tell stream ended 
+        loop = asyncio.get_event_loop()
+        loop.run_in_executor(None, decoder_worker, (None, None), self._output_queues, loop)
+
     async def frame_monitor(self):
         # first add stream queue to the output _output_queues
         self._output_queues['frame_monitor'] = stream_q = asyncio.Queue()
@@ -238,22 +306,29 @@ class RTPClient:
             except asyncio.QueueEmpty:
                 continue 
 
-    @property
     def get_audio_stream(self):
         return self._audio_stream
 
-    def set_audio_stream(self, stream: AudioStream):
+    def set_audio_stream(self, stream: Union[AudioStream, None]):
+        # if there is previous stream mark it as done
+        if audio_stream := self.get_audio_stream():
+            audio_stream.stream_done()
         self._audio_stream = stream
 
+        if stream:
+            logger.log(logging.DEBUG, f"Set new stream with id: {stream.stream_id}")
+        else:
+            logger.log(logging.DEBUG, "Set the stream to No stream")
 
-class RtpPacket:
-    def __init__(self, selected_codec):
-        self.selected_codec = selected_codec
-        self.out_sequence = random.randint(200, 800)
-        self.out_timestamp = random.randint(500, 5000)
-        self.out_ssrc = random.randint(1000, 65530)
+    @property
+    def _rtp_task(self) -> asyncio.Task:
+        return self.__rtp_task
 
-    def generate_packet(self, payload):
+    @_rtp_task.setter
+    def _rtp_task(self, value: asyncio.Task):
+        self.__rtp_task = value
+
+
 class RtpPacket:
     def __init__(
         self,

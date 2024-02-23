@@ -21,7 +21,7 @@ async def call_flow(call_handler: CallHandler):
     if dtmf_result:
         print("The DTMF result is:-> ", dtmf_result)
         stream_id = await call_handler.say("thank you for entering the code")
-        await stream_id.flush()
+        await stream_id.wait_finished()
 
     await call_handler.hangup()
 
