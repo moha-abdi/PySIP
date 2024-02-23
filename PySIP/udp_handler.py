@@ -56,7 +56,7 @@ class UdpWriter:
         return self.protocol.transport.get_extra_info(name, default)
 
 
-async def open_udp_connection(local_addr: Tuple[str, int], remote_addr: Tuple[str, int]=None):
+async def open_udp_connection(remote_addr: Tuple[str, int], local_addr: Tuple[str, int]=None):
     loop = asyncio.get_event_loop()
     transport, protocol = await loop.create_datagram_endpoint(
         lambda: UdpHandler(),
