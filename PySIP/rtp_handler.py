@@ -77,6 +77,25 @@ class RTPClient:
         else:
             logger.log(logging.WARNING, "No stream to send from")
             raise AudioStreamError
+    async def _handle_rfc_2833(self, packet):
+        dtmf_mapping = [
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#", "A", "B", "C", "D"
+        ]
+        payload = packet.payload
+        event = dtmf_mapping[payload[0]]
+
+        if not packet.marker:
+            return
+
+        # check for registered callbacks
+        if not self.__callbacks:
+            logger.log(logging.DEBUG, "No callbacks passed to RtpHandler.")
+            return
+        if not (callbacks := self.__callbacks.get('dtmf_callback')):
+            return
+        # notify the callbacks
+        for cb in callbacks:
+            await cb(event)
 
         while True:
             start_processing = asyncio.get_event_loop().time()
