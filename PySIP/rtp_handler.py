@@ -183,20 +183,87 @@ class RtpPacket:
         self.out_ssrc = random.randint(1000, 65530)
 
     def generate_packet(self, payload):
+class RtpPacket:
+    def __init__(
+        self,
+        payload_type: CodecInfo = CodecInfo.PCMA,
+        marker: int = 0,
+        sequence_number: int = 0,
+        timestamp: int = 0,
+        ssrc: int = 0,
+        payload: bytes = b"",
+    ):
+        self.payload_type = payload_type
+        self.sequence_number = sequence_number
+        self.timestamp = timestamp
+        self.marker = marker
+        self.ssrc = ssrc
+        self.csrc: List[int] = []
+        self.padding_size = 0
+        self.payload = payload
+
+    def serialize(self) -> bytes:
         packet = b"\x80"
-        packet += chr(int(self.selected_codec)).encode("utf8")
-        packet += self.get_header(payload)
-        packet += payload
+        packet += chr(int(self.payload_type)).encode("utf8")
+        packet += self.get_header()
+        packet += self.payload
         return packet
 
-    def get_header(self, payload):
-        seq = self.out_sequence.to_bytes(2, byteorder="big")
-        ts = self.out_timestamp.to_bytes(4, byteorder="big")
+    def get_header(self):
+        seq = self.sequence_number.to_bytes(2, byteorder="big")
+        ts = self.timestamp.to_bytes(4, byteorder="big")
 
-        ssrc = self.out_ssrc.to_bytes(4, byteorder="big")
+        ssrc = self.ssrc.to_bytes(4, byteorder="big")
         header = seq + ts + ssrc
-        self.out_sequence = (self.out_sequence + 1) % 65535  # Wrap around at 2^16 - 1
-        self.out_timestamp = (
-            self.out_timestamp + len(payload)
-        ) % 4294967295  # Wrap around at 2^32 -1
+ 
         return header
+
+    @classmethod
+    def parse(cls, data: bytes):
+        if len(data) < RTP_HEADER_LENGTH:
+            raise ValueError(
+                f"RTP packet length is less than {RTP_HEADER_LENGTH} bytes"
+            )
+
+        v_p_x_cc, m_pt, sequence_number, timestamp, ssrc = unpack("!BBHLL", data[0:12])
+        version = v_p_x_cc >> 6
+        padding = (v_p_x_cc >> 5) & 1
+        extension = (v_p_x_cc >> 4) & 1
+        cc = v_p_x_cc & 0x0F
+        if version != 2:
+            raise ValueError("RTP packet has invalid version")
+        if len(data) < RTP_HEADER_LENGTH + 4 * cc:
+            raise ValueError("RTP packet has truncated CSRC")
+
+        try:
+            payload_type = CodecInfo((m_pt & 0x7F))
+        except ValueError:
+            payload_type = CodecInfo.UNKNOWN
+
+        packet = cls(
+            marker=(m_pt >> 7),
+            payload_type=payload_type,
+            sequence_number=sequence_number,
+            timestamp=timestamp,
+            ssrc=ssrc,
+        )
+
+        pos = RTP_HEADER_LENGTH
+        for _ in range(0, cc):
+            packet.csrc.append(unpack_from("!L", data, pos)[0])
+            pos += 4
+
+        if extension:
+            # not neccesary currently so just pass
+            pass
+
+        if padding:
+            padding_len = data[-1]
+            if not padding_len or padding_len > len(data) - pos:
+                raise ValueError("RTP packet padding length is invalid")
+            packet.padding_size = padding_len
+            packet.payload = data[pos:-padding_len]
+        else:
+            packet.payload = data[pos:]
+
+        return packet
