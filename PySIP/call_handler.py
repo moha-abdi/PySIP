@@ -1,4 +1,5 @@
 import asyncio
+import traceback
 from typing import List
 from wave import Wave_read
 
@@ -166,14 +167,22 @@ class CallHandler:
         Args:
             to (str|int): The target phone number to transfer the call to.
         """
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
+        if asyncio.current_task() not in self.call.client.pysip_tasks:
             self.call.client.pysip_tasks.append(asyncio.current_task())
 
-        self.refer_future: asyncio.Future = self.call.refer_future
-        self.refer_message = self.call.client.refer_generator(to)
-        await self.call.client.send(self.refer_message)
+        if self.call.call_state != CallState.ANSWERED:
+            return(None, "Call can only be transferred after it has been established")
+ 
+        try:
+            self.call.refer_future = asyncio.Future()
+            self.refer_future: asyncio.Future = self.call.refer_future
+            self.refer_message = self.call.client.refer_generator(to)
+            await self.call.client.send(self.refer_message)
+        except Exception as e:
+            return (None, e)
 
         try:
+            print("Event loop in call handler is: ", asyncio.get_event_loop())
             result = await asyncio.wait_for(self.refer_future, 5)
             return (result, None)
         

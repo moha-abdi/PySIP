@@ -289,6 +289,7 @@ class VOIP:
         async def handle_refer(msg: SipMessage):
             if not msg.status:
                 return
+            print("A response for refer is received: ", msg.status)
 
             if str(msg.status).startswith('2'):
                 """handle success"""
