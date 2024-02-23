@@ -15,7 +15,7 @@ class PcmEncoder(ABC, Encoder):
         pass
 
     def encode(self, frame) -> bytes:
-        return self._convert(frame.payload, SAMPLE_WIDTH)
+        return self._convert(frame, SAMPLE_WIDTH)
 
 
 class PcmDecoder(ABC, Decoder):

@@ -5,7 +5,8 @@ from .codec_info import CodecInfo
 
 CODECS = [
     CodecInfo.PCMA,
-    CodecInfo.PCMU
+    CodecInfo.PCMU,
+    CodecInfo.EVENT
 ]
 
 
