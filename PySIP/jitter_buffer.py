@@ -16,7 +16,7 @@ class JitterBuffer:
         assert capacity & (capacity - 1) == 0, "capacity must be a power of 2"
         self._capacity = capacity
         self._origin: Optional[int] = None
-        self._packets: List[Any] = []
+        self._packets: List[Any] = [None for _ in range(capacity)]
         self._prefetch = prefetch
 
     @property
@@ -70,7 +70,7 @@ class JitterBuffer:
                 # we now have a complete frame, only store the first one
                 if frame is None:
                     frame = JitterFrame(
-                        data=b"".join([x._data for x in packets]), timestamp=timestamp
+                        data=b"".join([x.payload for x in packets]), timestamp=timestamp
                     )
                     remove = count
 
