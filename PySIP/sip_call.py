@@ -457,18 +457,13 @@ class SipCall:
         self._register_callback("state_changed_cb", wrapper)
         return wrapper
 
+    def on_frame_received(self, func):
+        @wraps(func)
+        async def wrapper(frame):
+            return await func(frame)
 
-class TTS:
-    def __init__(
-        self,
-        text: str,
-        voice: str,
-        output_filename: str
-    ) -> None:
-
-        self.text = text
-        self.voice = voice
-        self.output_filename = output_filename
+        self._register_callback("frame_monitor", wrapper)
+        return wrapper
 
     async def generate_audio(self) -> str:
         try:

@@ -130,7 +130,27 @@ class RTPClient:
             except asyncio.TimeoutError:
                 continue  # this is neccesary to avoid blocking of checking
                 # whether app is runing or not
+    async def frame_monitor(self):
+        # first add stream queue to the output _output_queues
+        self._output_queues['frame_monitor'] = stream_q = asyncio.Queue()
+        self._output_queues['new'] = asyncio.Queue()
+        while True:
             await asyncio.sleep(0.01)
+            if not self.is_running.is_set():
+                break
+            if not self.__callbacks:
+                logger.log(logging.DEBUG, "No callbacks passed to RtpHandler.")
+                break
+            try:
+                frame = stream_q.get_nowait()
+                if not (callbacks := self.__callbacks.get('frame_monitor')):
+                    break
+                # check for registered callbacks
+                for cb in callbacks:
+                    await cb(frame)
+
+            except asyncio.QueueEmpty:
+                continue 
 
     @property
     def get_audio_stream(self):
