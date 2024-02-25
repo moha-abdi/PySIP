@@ -41,6 +41,10 @@ async def frame_received(frame):
 async def dtmf_received(dtmf_key):
     print("Received dtmf key: ", dtmf_key)
 
+@call.on_amd_state_received 
+async def amd_received(amd_state):
+    print("The amd state is: ", amd_state)
+
 async def stop_client(client_):
     await asyncio.sleep(26)
     await client_.stop()
@@ -67,7 +71,7 @@ async def main():
     call_task = asyncio.create_task(call.start())
     stop3_task = asyncio.create_task(stop_client(call))
 
-    await asyncio.gather(client_task, stop_task, call_task, stop3_task, new_call_flow(call.call_handler), return_exceptions=False
+    await asyncio.gather(client_task, stop_task, call_task, stop3_task, call_flow(), return_exceptions=False
                          )
     call.get_recorded_audio('moha.wav')
 

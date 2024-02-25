@@ -11,7 +11,7 @@ class JitterFrame:
 
 class JitterBuffer:
     def __init__(
-        self, capacity: int, prefetch: int = 0, is_video: bool = False
+        self, capacity: int, prefetch: int = 0
     ) -> None:
         assert capacity & (capacity - 1) == 0, "capacity must be a power of 2"
         self._capacity = capacity

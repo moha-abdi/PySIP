@@ -589,6 +589,14 @@ class SipCall:
         self._register_callback("dtmf_callback", wrapper)
         return wrapper
 
+    def on_amd_state_received(self, func):
+        @wraps(func)
+        async def wrapper(amd_state):
+            return await func(amd_state)
+
+        self._register_callback("amd_app", wrapper)
+        return wrapper
+
     @property
     def call_handler(self) -> CallHandler:
         return self._call_handler

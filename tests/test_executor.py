@@ -9,7 +9,7 @@ async def sleep_test():
     queue = asyncio.Queue()
     loop = asyncio.get_event_loop()
     print('going to sleep')
-    res = loop.run_in_executor(None, new_test, queue, loop)
+    res = await loop.run_in_executor(None, new_test, queue, loop)
     # time.sleep(5)
     print(await queue.get())
     print('waking up')
@@ -25,8 +25,6 @@ async def parallel():
     y = bytearray()
     print(bytes(y))
 
-    x = b''
-    assert x is None
 
     
 

@@ -7,6 +7,7 @@ from struct import unpack, unpack_from
 import time
 from typing import Callable, Dict, List, Optional, Union
 import wave
+from PySIP.amd.amd import AnswringMachineDetector
 
 from PySIP.exceptions import AudioStreamError, NoSupportedCodecsFound
 from PySIP.jitter_buffer import JitterBuffer
@@ -21,6 +22,7 @@ MAX_WAIT_FOR_STREAM = 40  # seconds
 RTP_HEADER_LENGTH = 12
 RTP_PORT_RANGE = range(10_000, 20_000)
 SEND_SILENCE = True # send silence frames when no stream
+USE_AMD_APP = True
 
 
 def decoder_worker(input_data, output_qs, loop):
@@ -95,15 +97,30 @@ class RTPClient:
         send_task = asyncio.create_task(self.send(), name="Rtp Send Task")
         receive_task = asyncio.create_task(self.receive(), name="Rtp receive Task")
         frame_monitor_task = asyncio.create_task(self.frame_monitor(), name="Frame Monitor Task")
+        _tasks = [send_task, receive_task, frame_monitor_task]
+
+        amd_task = None
+        if USE_AMD_APP: 
+            self.__amd_detector = AnswringMachineDetector()
+            # create an input for the amd
+            self._output_queues["amd_app"] = amd_input = asyncio.Queue()
+            amd_cb = [self.__callbacks.get("amd_app") if self.__callbacks else []][0]
+            amd_task = asyncio.create_task(self.__amd_detector.run_detector(
+                amd_input,
+                amd_cb
+            ))
+            _tasks.append(amd_task)
 
         try:
-            await asyncio.gather(send_task, receive_task, frame_monitor_task)
+            await asyncio.gather(*_tasks)
         except asyncio.CancelledError:
             if send_task.done():
                 pass
             if receive_task.done():
                 pass
             if frame_monitor_task.done():
+                pass
+            if amd_task and amd_task.done():
                 pass
 
             _task = asyncio.current_task()
@@ -131,6 +148,13 @@ class RTPClient:
                 frame_monitor_task.cancel()
                 try:
                     await frame_monitor_task
+                except asyncio.CancelledError:
+                    pass
+
+            if amd_task and not amd_task.done():
+                amd_task.cancel()
+                try:
+                    await amd_task
                 except asyncio.CancelledError:
                     pass
 
@@ -273,6 +297,8 @@ class RTPClient:
 
                 # if we have enough encoded buffer then decode
                 if encoded_frame:
+                    if self.__amd_detector and not self.__amd_detector.amd_started.is_set():
+                        self.__amd_detector.amd_started.set()
                     loop = asyncio.get_event_loop()
                     loop.run_in_executor(None, decoder_worker, (packet.payload_type, encoded_frame), self._output_queues, loop)
 
