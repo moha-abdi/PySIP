@@ -42,6 +42,11 @@ class DialogState(Enum):
     TERMINATED = auto()  # After the dialog has end_of_headers
 
 
+class DTMFMode(Enum):
+    RFC_2833 = auto()
+    INBAND = auto()
+
+
 class SipCore:
     def __init__(self, username, server, connection_type: str, password: str):
         self.username = username
