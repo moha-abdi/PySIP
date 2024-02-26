@@ -1,12 +1,13 @@
 import asyncio
 import logging
-from typing import Any, Tuple
+from typing import Any, Optional, Tuple
 from .utils.logger import logger
 
 class UdpHandler(asyncio.DatagramProtocol):
-    def __init__(self) -> None:
-        self.transport: asyncio.DatagramTransport = None
-        self.data_q = asyncio.Queue()
+    def __init__(self, loop) -> None:
+        self.transport: Optional[asyncio.DatagramTransport] = None
+        self.data_q: asyncio.Queue = asyncio.Queue()
+        self.loop = loop
         super().__init__()
 
     def connection_made(self, transport) -> None:
@@ -19,7 +20,7 @@ class UdpHandler(asyncio.DatagramProtocol):
             self.transport.close()
 
     def error_received(self, exc: Exception) -> None:
-        logger.log(logging.ERROR, f"An error received: {exc}", exc_info=True)
+        logger.log(logging.ERROR, "An error received: %s", exc, exc_info=True)
 
     def send_message(self, message: bytes, address: tuple = None) -> None:
         if not self.transport:
@@ -28,7 +29,7 @@ class UdpHandler(asyncio.DatagramProtocol):
         self.transport.sendto(message)
 
     def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
-        asyncio.ensure_future(self.data_q.put(data))
+        asyncio.run_coroutine_threadsafe(self.data_q.put(data), self.loop)
 
     async def read(self):
         return await self.data_q.get()
@@ -59,7 +60,7 @@ class UdpWriter:
 async def open_udp_connection(remote_addr: Tuple[str, int], local_addr: Tuple[str, int]=None):
     loop = asyncio.get_event_loop()
     transport, protocol = await loop.create_datagram_endpoint(
-        lambda: UdpHandler(),
+        lambda: UdpHandler(loop),
         local_addr,
         remote_addr
     )
