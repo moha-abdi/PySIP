@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from PySIP.sip_call import SipCall
 from PySIP.sip_client import SipClient
 from PySIP.call_handler import CallHandler
@@ -46,7 +47,7 @@ async def amd_received(amd_state):
     print("The amd state is: ", amd_state)
 
 async def stop_client(client_):
-    await asyncio.sleep(26)
+    await asyncio.sleep(30)
     await client_.stop()
     return
 

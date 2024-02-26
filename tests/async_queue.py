@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 import time
 
 
@@ -29,7 +30,14 @@ def wait_for(condition, timeout=1):
     return False
 
 async def cbb(res):
+    res.id = 9999
     print(res)
+
+@dataclass 
+class Person:
+    name = "Moha"
+    id: int
+
 async def main():
     queue = asyncio.Queue()
 
@@ -48,6 +56,11 @@ async def main():
     for v in x:
         print(v)
     await asyncio.gather(*[])
+    person = Person(789)
+    await cbb(person)
+    print(person.id)
+    p = []
+    p.extend([1, 2, 3])
 
 asyncio.run(main())
 

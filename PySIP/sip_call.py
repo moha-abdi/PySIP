@@ -76,9 +76,7 @@ class SipCall:
         self.call_state = CallState.INITIALIZING
 
     async def start(self):
-        call_task = None
-        receive_task = None
-        call_handler_task = None
+        _tasks = [] 
         try:
             self.setup_local_session()
             self.dialogue.username = self.username
@@ -94,15 +92,10 @@ class SipCall:
             call_handler_task = asyncio.create_task(
                 self.call_handler.send_handler(), name="Calld Handler Task"
             )
+            _tasks.extend([receive_task, call_task, call_handler_task])
             try:
-                await asyncio.gather(receive_task, call_task, call_handler_task, return_exceptions=False)
-            except asyncio.CancelledError:
-                if receive_task.done():
-                    pass
-                elif call_task.done():
-                    pass
-                elif call_handler_task.done():
-                    pass
+                await asyncio.gather(*_tasks, return_exceptions=False)
+            except asyncio.CancelledError: 
                 _task = asyncio.current_task()
                 if _task and _task.cancelling() > 0:
                     raise
@@ -112,26 +105,14 @@ class SipCall:
             return
 
         finally:
-            if call_task and not call_task.done():
-                call_task.cancel()
+            for _task in _tasks:
+                if _task.done():
+                    continue
+                _task.cancel()
                 try:
-                    await call_task
+                    await _task
                 except asyncio.CancelledError:
-                    pass  # Task cancellation is expected
-
-            if call_handler_task and not call_handler_task.done():
-                call_handler_task.cancel()
-                try:
-                    await call_handler_task
-                except asyncio.CancelledError:
-                    pass # always expect task cancellation :)
-
-            if receive_task and not receive_task.done():
-                receive_task.cancel()
-                try:
-                    await receive_task
-                except asyncio.CancelledError:
-                    pass  # Task cancellation is expected
+                    pass
 
     async def stop(self, reason: str = "Normal Stop"):
         # we have to handle three different scenarious when hanged-up
@@ -206,7 +187,7 @@ class SipCall:
         logger.log(logging.DEBUG, "now cleaning up the rtp..")
         
         _rtp_task = self._rtp_session._rtp_task
-        try:
+        try: 
             await _rtp_task
         except asyncio.CancelledError:
             pass
