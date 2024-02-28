@@ -1,4 +1,5 @@
 import asyncio
+from collections import namedtuple
 from functools import wraps
 import logging
 import random
@@ -6,6 +7,7 @@ from typing import Callable, Dict, List, Literal, Optional
 import wave
 
 from PySIP.call_handler import CallHandler
+from PySIP.exceptions import SIPTransferException
 
 from .rtp_handler import RTP_PORT_RANGE, RTPClient, TransmitType
 from .sip_core import Counter, DialogState, SipCore, SipDialogue, SipMessage
@@ -71,12 +73,13 @@ class SipCall:
         self._rtp_session: Optional[RTPClient] = None
         self._call_handler = CallHandler(self)
         self._dtmf_handler = DTMFHandler()
+        self._refer_future: asyncio.Future = asyncio.Future()
         self.__recorded_audio_bytes: Optional[bytes] = None
         self.dialogue = SipDialogue(self.call_id, self.sip_core.generate_tag(), "")
         self.call_state = CallState.INITIALIZING
 
     async def start(self):
-        _tasks = [] 
+        _tasks = []
         try:
             self.setup_local_session()
             self.dialogue.username = self.username
@@ -95,7 +98,7 @@ class SipCall:
             _tasks.extend([receive_task, call_task, call_handler_task])
             try:
                 await asyncio.gather(*_tasks, return_exceptions=False)
-            except asyncio.CancelledError: 
+            except asyncio.CancelledError:
                 _task = asyncio.current_task()
                 if _task and _task.cancelling() > 0:
                     raise
@@ -178,16 +181,16 @@ class SipCall:
     async def _cleanup_rtp(self):
         if not self._rtp_session:
             return
-        
+
         if not self._rtp_session._rtp_task:
             return
 
         await self._rtp_session._stop()
         await self._rtp_session._wait_stopped()
         logger.log(logging.DEBUG, "now cleaning up the rtp..")
-        
+
         _rtp_task = self._rtp_session._rtp_task
-        try: 
+        try:
             await _rtp_task
         except asyncio.CancelledError:
             pass
@@ -197,6 +200,9 @@ class SipCall:
     async def _wait_stopped(self):
         while True:
             if not self.sip_core.is_running.is_set():
+                if self.call_state is CallState.INITIALIZING:
+                    await asyncio.sleep(0.1)
+                    continue
                 break
 
             await asyncio.sleep(0.1)
@@ -206,7 +212,7 @@ class SipCall:
             self.sip_core.get_local_ip(),
             random.choice(RTP_PORT_RANGE),
             random.getrandbits(32),
-            CODECS
+            CODECS,
         )
         sdp = SipMessage.parse_sdp(SipMessage.sdp_to_dict(sdp))
         self.dialogue._local_session_info = sdp
@@ -317,6 +323,31 @@ class SipCall:
 
         return msg
 
+    def refer_generator(self, refer_to_callee):
+        _, port = self.sip_core.get_extra_info("sockname")
+        ip = self.my_public_ip
+
+        branch_id = self.sip_core.gen_branch()
+        transaction = self.dialogue.add_transaction(branch_id, "REFER")
+        refer_to = f"sip:{refer_to_callee}@{self.server};transport={self.CTS}"
+        referred_by = f"sip:{self.username}@{self.server}"
+
+        msg = f"REFER sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} sip/2.0\r\n"
+        msg += f"Via: sip/2.0/{self.CTS} {ip}:{port};rport;branch={branch_id};alias\r\n"
+        msg += "Max-Forwards: 70\r\n"
+        msg += (
+            f"From: sip:{self.username}@{self.server};tag={self.dialogue.local_tag}\r\n"
+        )
+        msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
+        msg += f"Call-ID: {self.call_id}\r\n"
+        msg += f"CSeq: {transaction.cseq} REFER\r\n"
+        msg += f"Refer-To: {refer_to}\r\n"
+        msg += f"Referred-By: {referred_by}\r\n"
+        msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
+        msg += "Content-Length: 0\r\n\r\n"
+
+        return msg
+
     def cancel_generator(self, transaction):
         _, port = self.sip_core.get_extra_info("sockname")
         ip = self.my_public_ip
@@ -396,7 +427,9 @@ class SipCall:
             ack_message = self.ack_generator(transaction)
             self.dialogue.auth_retry_count = 0  # reset the auth counter
             await self.sip_core.send(ack_message)
+            self.dialogue.update_state(msg)
             await self.update_call_state(CallState.ANSWERED)
+            return
 
         elif str(msg.status).startswith("1") and msg.method == "INVITE":
             # Handling 1xx profissional responses
@@ -429,6 +462,38 @@ class SipCall:
             ack_message = self.ack_generator(transaction)
             await self.sip_core.send(ack_message)
             await self.update_call_state(CallState.FAILED)
+
+        elif str(msg.status).startswith("2") and msg.method == "REFER":
+            SIPTransferResult = namedtuple("SIPTransferResult", ["code", "description"])
+            if self._refer_future.done():
+                description = "success"
+                self._refer_future.set_result(
+                    SIPTransferResult(int(str(msg.status)), description)
+                )
+
+        elif str(msg.status).startswith(("4", "5", "6")) and msg.method == "REFER":
+            if not self._refer_future.done():
+                description = (
+                    "client error"
+                    if str(msg.status).startswith("4")
+                    else "server error"
+                )
+                self._refer_future.set_exception(
+                    SIPTransferException(int(str(msg.status)), description)
+                )
+
+        elif str(msg.data).startswith("NOTIFY"):
+            if msg.body_data:
+                _data = msg.body_data.split(' ')
+                logger.log(
+                    logging.DEBUG, "Transfer status: %s",
+                    ' '.join(_data[2:]).replace('\r\n', '')
+                )
+                for _cb in self._get_callbacks("transfer_cb"):
+                    await _cb(SIPStatus(int(_data[1])))
+
+            message = self.ok_generator(msg)
+            await self.sip_core.send(message) 
 
         # Finally update status and fire events
         self.dialogue.update_state(msg)
@@ -485,6 +550,7 @@ class SipCall:
         self.last_invite_msg = msg
 
         await self.sip_core.send(msg)
+        print(msg)
         return
 
     async def update_call_state(self, new_state):
@@ -523,7 +589,7 @@ class SipCall:
 
         self._register_callback("state_changed_cb", wrapper)
         return wrapper
-    
+
     async def on_call_answered(self, state: CallState):
         if state is CallState.ANSWERED:
             # set-up RTP connections
@@ -546,7 +612,7 @@ class SipCall:
                 remote_sdp.port,
                 TransmitType.SENDRECV,
                 local_sdp.ssrc,
-                self._callbacks
+                self._callbacks,
             )
             # start the session
             _rtp_task = asyncio.create_task(self._rtp_session._start())
@@ -578,24 +644,35 @@ class SipCall:
         self._register_callback("amd_app", wrapper)
         return wrapper
 
+    def on_transfer_state_changed(self, func):
+        @wraps(func)
+        async def wrapper(status: SIPStatus):
+            return await func(status)
+
+        self._register_callback("transfer_cb", wrapper)
+        return
+
     @property
     def call_handler(self) -> CallHandler:
         return self._call_handler
 
     @call_handler.setter
     def call_handler(self, call_handler: CallHandler):
-        self._call_handler = call_handler 
+        self._call_handler = call_handler
 
     def process_recorded_audio(self) -> bytes:
         """Unpacks the recorded audio queue and make into bytes array"""
         audio_bytes = bytearray()
         if not self._rtp_session:
-            logger.log(logging.WARNING, "Can not get recorded audio as there is no established session")
+            logger.log(
+                logging.WARNING,
+                "Can not get recorded audio as there is no established session",
+            )
             return bytes(audio_bytes)
-     
+
         while True:
             try:
-                if not (queue := self._rtp_session._output_queues.get('audio_record')):
+                if not (queue := self._rtp_session._output_queues.get("audio_record")):
                     break
                 if not (frame := queue.get_nowait()):
                     break
@@ -603,16 +680,19 @@ class SipCall:
             except asyncio.QueueEmpty:
                 break
         return bytes(audio_bytes)
-    
-    def get_recorded_audio(self, filename: str, format='wav'):
+
+    def get_recorded_audio(self, filename: str, format="wav"):
         """Only wav format supported currently the others wil be added"""
         if not self._rtp_session:
-            logger.log(logging.WARNING, "Can not get recorded audio as there is no established session")
+            logger.log(
+                logging.WARNING,
+                "Can not get recorded audio as there is no established session",
+            )
             return
         if self.__recorded_audio_bytes is None:
             self.__recorded_audio_bytes = self.process_recorded_audio()
-        
-        with wave.open(filename, 'wb') as f:
+
+        with wave.open(filename, "wb") as f:
             f.setsampwidth(2)
             f.setframerate(8000)
             f.setnchannels(1)
@@ -638,10 +718,10 @@ class DTMFHandler:
         await self.queue.put(code)
         self.dtmf_codes.append(code)
 
-    async def started_typing(self, event):
+    async def started_typing(self, event, *args):
         await self.started_typing_event.wait()
         self.started_typing_event.clear()
-        event()
+        event(*args)
 
     async def get_dtmf(self, length=1, finish_on_key=None) -> str:
         dtmf_codes: List[str] = []

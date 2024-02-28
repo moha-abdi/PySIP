@@ -8,6 +8,7 @@ class UdpHandler(asyncio.DatagramProtocol):
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.data_q: asyncio.Queue = asyncio.Queue()
         self.loop = loop
+        self.count = 0
         super().__init__()
 
     def connection_made(self, transport) -> None:
@@ -30,6 +31,7 @@ class UdpHandler(asyncio.DatagramProtocol):
 
     def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
         asyncio.run_coroutine_threadsafe(self.data_q.put(data), self.loop)
+        self.count += 1
 
     async def read(self):
         return await self.data_q.get()

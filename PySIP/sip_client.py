@@ -81,8 +81,11 @@ class SipClient:
     async def stop(self):
         unregister = self.build_register_message(unregister=True)
         await self.sip_core.send(unregister)
-        await self.unregistered.wait()
-        logger.log(logging.INFO, "Sip client has been de-registered from the server")
+        try:
+            await asyncio.wait_for(self.unregistered.wait(), 4)
+            logger.log(logging.INFO, "Sip client has been de-registered from the server")
+        except asyncio.TimeoutError:
+            logger.log(logging.WARNING, "Failed to de-register. Closing the app.")
 
         self.sip_core.is_running.clear()
         await self.sip_core.close_connections()

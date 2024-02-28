@@ -256,6 +256,7 @@ class SipCore:
                 try:
                     data = await asyncio.wait_for(self.udp_reader.read(4096), 0.5)
                 except asyncio.TimeoutError:
+                    await asyncio.sleep(0.01)
                     continue  # this is neccesary to avoid blocking of checking
                     # whether app is runing or not
             else:
@@ -267,6 +268,7 @@ class SipCore:
                 try:
                     data = await asyncio.wait_for(self.reader.read(4096), 0.5)
                 except asyncio.TimeoutError:
+                    await asyncio.sleep(0.01)
                     continue  # very important!!
 
             sip_messages = self.extract_sip_messages(data)
@@ -408,13 +410,15 @@ class SipDialogue:
 
         elif self.state == DialogState.INITIAL and is_provisional_response:
             self.state = DialogState.EARLY
-            self._remote_session_info = SDPParser(message.body)
+            if message.body is not None:
+                self._remote_session_info = SDPParser(message.body)
 
         elif (
             self.state in [DialogState.INITIAL, DialogState.EARLY] and is_final_response
         ):
             self.state = DialogState.CONFIRMED
-            self._remote_session_info = SDPParser(message.body)
+            if message.body is not None:
+                self._remote_session_info = SDPParser(message.body)
         elif message.method == "BYE" and message.status is SIPStatus.OK:
             self.state = DialogState.TERMINATED
         elif message.status == SIPStatus(487) and message.method == "INVITE":

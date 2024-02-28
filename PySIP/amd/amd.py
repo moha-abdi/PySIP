@@ -68,6 +68,7 @@ class AnswringMachineDetector:
 
     async def run_detector(self, input_q: asyncio.Queue, _callbacks):
         await self.amd_started.wait()
+        self.amd_start_time = time.monotonic_ns() / 1e6
         logger.log(logging.DEBUG, "AMD app started")
         while True:
             try:
@@ -95,13 +96,15 @@ class AnswringMachineDetector:
                         logger.log(logging.DEBUG, "Amd Stopped. REASON: No audio data")
                         break
                     else:
+                        print("AUDIO FRAME COUNT: ", self.audio_frame_count)
                         logger.log(logging.DEBUG, "Amd Stopped. REASON: NO audio data or long time")
                         break
 
                 
                 self.audio_frame_count += 1
                 # convert to PCM for consistency
-
+                
+                data = audioop.bias(data, 2, 0)
                 data_array = np.array([], np.int16)
                 data_array = np.frombuffer(data, np.int16)
                 self.frame_length = data_array.size / self.DEFAULT_SAMPLES_PER_MS 
@@ -250,6 +253,10 @@ class AnswringMachineDetector:
                 logger.log(logging.WARNING, "Couldnt read the frame from the input queue")
                 self.amd_status = AmdStatus.NOTSURE
                 break
+
+            finally:
+                await asyncio.sleep(0)
+                pass
 
         logger.log(logging.INFO, f"Amd Stopped. REASON: {self.amd_status}")
         # Notify the callbacks

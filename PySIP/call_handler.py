@@ -193,12 +193,13 @@ class CallHandler:
         Args:
             to (str|int): The target phone number to transfer the call to.
         """
-        self.refer_future: asyncio.Future = self.call.refer_future
-        self.refer_message = self.call.client.refer_generator(to)
-        await self.call.client.send(self.refer_message)
+        self.call._refer_future = asyncio.Future()
+        self.refer_message = self.call.refer_generator(to)
+        await self.call.sip_core.send(self.refer_message)
+        logger.log(logging.DEBUG, f"Trnasfering the call to -> {to}")
 
         try:
-            result = await asyncio.wait_for(self.refer_future, 5)
+            result = await asyncio.wait_for(self.call._refer_future, 5)
             return (result, None)
 
         except asyncio.TimeoutError:
@@ -288,7 +289,7 @@ class CallHandler:
                             if self.previous_stream:
                                 asyncio.create_task(
                                     self.call._dtmf_handler.started_typing(
-                                        self.call._rtp_session.set_audio_stream(None)
+                                        self.call._rtp_session.set_audio_stream, None
                                     )
                                 )
                                 awaitable = self.previous_stream.stream_done_future

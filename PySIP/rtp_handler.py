@@ -25,7 +25,7 @@ RTP_HEADER_LENGTH = 12
 RTP_PORT_RANGE = range(10_000, 20_000)
 SEND_SILENCE = True # send silence frames when no stream
 USE_AMD_APP = True
-DTMF_MODE = DTMFMode.INBAND
+DTMF_MODE = DTMFMode.RFC_2833
 
 
 def decoder_worker(input_data, output_qs, loop):
@@ -67,7 +67,6 @@ def dtmf_detector_worker(input_buffer, _callbacks, loop):
     for code in dtmf_codes:
         logger.log(logging.DEBUG, "Detected INBAND DTMF key: %s", code)
     input_buffer.buffer = np.array([], np.int16)
-
 
 
 class RTPProtocol(Enum):
@@ -251,7 +250,7 @@ class RTPClient:
             _buffer.buffer = np.concatenate((_buffer.buffer, data_array))
 
             if not (len(_buffer.buffer) >= _buffer.size):
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.01)
                 continue 
 
             # check for registered callbacks
@@ -263,7 +262,7 @@ class RTPClient:
 
             loop = asyncio.get_event_loop()
             loop.run_in_executor(None, dtmf_detector_worker, _buffer, callbacks, loop)
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.01)
 
     async def send(self):
         while True:
@@ -320,31 +319,27 @@ class RTPClient:
             await asyncio.sleep(sleep_time)
 
     async def receive(self):
-        count = 0
-        while True:
-            if not self.is_running.is_set():
-                logger.log(logging.DEBUG, "Receiver handler stopped.")
-                break
+        if not self.udp_reader:
+            logger.log(logging.CRITICAL, "There is no UdpReader, can't read!")
+            return
 
-            if not self.udp_reader:
-                logger.log(logging.CRITICAL, "There is no UdpReader, can't read!")
-                return
+        while True: 
             try:
                 data = await self.udp_reader.read()
-                count += 1
                 if data is None:
+                    logger.log(logging.DEBUG, "Receiver handler stopped.")
                     break
 
                 packet = RtpPacket.parse(data)
                 if packet.payload_type == CodecInfo.EVENT:
                     # handle rfc 2833 
                     await self._handle_rfc_2833(packet)
-                    await asyncio.sleep(0)
+                    await asyncio.sleep(0.01)
                     continue
 
                 if packet.payload_type not in CODECS:
                     logger.log(logging.WARNING, f"Unsupported codecs received, {packet.payload_type}")
-                    await asyncio.sleep(0)
+                    await asyncio.sleep(0.01)
                     continue
 
                 encoded_frame = self.__jitter_buffer.add(packet)
@@ -352,39 +347,44 @@ class RTPClient:
                 if encoded_frame:
                     if self.__amd_detector and not self.__amd_detector.amd_started.is_set():
                         self.__amd_detector.amd_started.set()
-                    loop = asyncio.get_event_loop()
-                    loop.run_in_executor(None, decoder_worker, (packet.payload_type, encoded_frame), self._output_queues, loop) 
+                    decoded_frame = self.__decoder.decode(encoded_frame.data)
+                    for output_q in self._output_queues.values():
+                        await output_q.put(decoded_frame)
+
                 await asyncio.sleep(0)
 
             except asyncio.TimeoutError:
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.01)
                 continue  # this is neccesary to avoid blocking of checking
                 # whether app is runing or not
 
         # finally put None in to the q to tell stream ended 
-        loop = asyncio.get_event_loop()
-        loop.run_in_executor(None, decoder_worker, (None, None), self._output_queues, loop) 
+        for output_q in self._output_queues.values():
+            await output_q.put(None)
+
     async def frame_monitor(self):
         # first add stream queue to the output _output_queues
         self._output_queues['frame_monitor'] = stream_q = asyncio.Queue()
-        self._output_queues['new'] = asyncio.Queue()
         while True:
-            await asyncio.sleep(0.01)
             if not self.is_running.is_set():
                 break
             if not self.__callbacks:
                 logger.log(logging.DEBUG, "No callbacks passed to RtpHandler.")
                 break
             try:
-                frame = stream_q.get_nowait()
+                frame = await stream_q.get()
+                if frame is None:
+                    break
                 if not (callbacks := self.__callbacks.get('frame_monitor')):
                     break
                 # check for registered callbacks
                 for cb in callbacks:
                     await cb(frame)
+                await asyncio.sleep(0.1)
 
             except asyncio.QueueEmpty:
-                continue 
+                await asyncio.sleep(0.1)
+                continue
 
     def get_audio_stream(self):
         return self._audio_stream
