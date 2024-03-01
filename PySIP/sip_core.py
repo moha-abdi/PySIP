@@ -461,7 +461,7 @@ class SipMessage:
         self._from_tag = None
         self._to_tag = None
         self._call_id = None
-        self._status = None
+        self._status: Optional[SIPStatus] = None
         self._public_ip = None
         self._rport = None
         self._branch = None
@@ -696,6 +696,9 @@ class SipMessage:
         sdp += f"o=- {random.randint(100000000, 999999999)} {random.randint(100000000, 999999999)} IN IP4 {ip}\r\n"
         sdp += "s=PySIP Call\r\n"
         sdp += f"m=audio {port} RTP/AVP {' '.join([str(int(i)) for i in supported_codecs])}\r\n"
+        sdp += "b=AS:84\r\n"
+        sdp += "t=0 0\r\n"
+        sdp += "a=X-nat:1\r\n"
         sdp += f"c=IN IP4 {ip}\r\n"
         sdp += f"a=rtcp:{port + 1} IN IP4 {ip}\r\n"
         sdp += f"a=sendrecv\r\n"
