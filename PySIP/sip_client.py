@@ -162,6 +162,7 @@ class SipClient:
             # Handling unauthenticated REGISTER request
             ip = self.my_private_ip
             port = self.port
+            _, my_public_port = self.sip_core.get_extra_info('sockname')
             if not self.register_tags['local_tag']:
                 self.register_tags['local_tag'] = self.sip_core.generate_tag()
 
@@ -172,13 +173,13 @@ class SipClient:
             
             # Construct the REGISTER request without Authorization header
             msg = (f"REGISTER sip:{self.server};transport={self.CTS} SIP/2.0\r\n"
-                   f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={branch_id};alias\r\n"
+                   f"Via: SIP/2.0/{self.CTS} {ip}:{my_public_port};rport;branch={branch_id};alias\r\n"
                    f"Max-Forwards: 70\r\n"
                    f"From: <sip:{self.username}@{self.server}>;tag={self.register_tags['local_tag']}\r\n"
                    f"To: <sip:{self.username}@{self.server}>\r\n"
                    f"Call-ID: {call_id}\r\n"
                    f"CSeq: {cseq} REGISTER\r\n"
-                   f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>{expires}\r\n"
+                   f"Contact: <sip:{self.username}@{self.my_public_ip}:{my_public_port};transport={self.CTS};ob>{expires}\r\n"
                    f"{expires_field}"
                    f"Content-Length: 0\r\n\r\n")
 
