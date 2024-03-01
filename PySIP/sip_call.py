@@ -689,7 +689,7 @@ class SipCall:
                 break
         return bytes(audio_bytes)
 
-    def get_recorded_audio(self, filename: str, format="wav"):
+    def get_recorded_audio(self, filename: Optional[str] = None, format="wav"):
         """Only wav format supported currently the others wil be added"""
         if not self._rtp_session:
             logger.log(
@@ -700,6 +700,7 @@ class SipCall:
         if self.__recorded_audio_bytes is None:
             self.__recorded_audio_bytes = self.process_recorded_audio()
 
+        filename = f'call_{self.call_id}.wav' if not filename else filename
         with wave.open(filename, "wb") as f:
             f.setsampwidth(2)
             f.setframerate(8000)
