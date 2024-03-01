@@ -96,7 +96,6 @@ class AnswringMachineDetector:
                         logger.log(logging.DEBUG, "Amd Stopped. REASON: No audio data")
                         break
                     else:
-                        print("AUDIO FRAME COUNT: ", self.audio_frame_count)
                         logger.log(logging.DEBUG, "Amd Stopped. REASON: NO audio data or long time")
                         break
 

@@ -8,25 +8,19 @@ from PySIP.sip_client import SipClient
 from PySIP.call_handler import CallHandler
 from scripts.BankOTP import call_flow as new_call_flow
 
+
 client = SipClient(
-    '111',
+    '3001',
     '192.168.1.112:5060',
     'UDP',
-    '12345678'
+    '30013001'
 )
-#
-# client2 = SipClient(
-#     '3001',
-#     '192.168.1.112:5060',
-#     'UDP',
-#     '30013001'
-# )
 
 call = SipCall(
-    '111',
-    '12345678', 
+    '3001',
+    '30013001', 
     '192.168.1.112:5060',
-    '112'
+    '111'
 )
 
 @call.on_call_state_changed
@@ -57,39 +51,29 @@ async def transfer_state(state):
         await call.call_handler.hangup()
 
 async def stop_client(client_):
-    await asyncio.sleep(30)
+    await asyncio.sleep(4)
     await client_.stop()
     return
-
-async def answered(event):
-    print(event)
-    await event.wait()
-    print("Call has been answered my boy")
-
 
 async def call_flow():
     await call.call_handler.say("Hello and welcome there Moha Abdi")
     stream = await call.call_handler.say("Well today was kind of a beautiful day")
     await stream.wait_finished()
-    await call.call_handler.transfer_to(3001)
+    await call.call_handler.transfer_to(15125963515)
     await call.call_handler.hangup()
     await client.stop()
+
 
 async def main():
     asyncio.get_event_loop().set_debug(True)
     client_task = asyncio.create_task(client.run())
-    # stop_task = asyncio.create_task(stop_client(client))
-    #
-    # client2_task = asyncio.create_task(client2.run())
-    # stop2_task = asyncio.create_task(stop_client(client2))
-    #
+    
     call_task = asyncio.create_task(call.start())
-    # stop3_task = asyncio.create_task(stop_client(call))
  
     await asyncio.gather(client_task, call_task, call_flow(), return_exceptions=False
                          )
-    # call.get_recorded_audio('moha.wav')
     call.get_recorded_audio(f'call_{str(uuid.uuid4())}.wav')
 
-log_slow_callbacks.enable(0.02)
+
+log_slow_callbacks.enable(1)
 asyncio.run(main())

@@ -249,6 +249,9 @@ class CallHandler:
                 if not self.call.sip_core.is_running.is_set():
                     break  # Exit the loop if the call is not running
 
+                if self.call.call_state in [CallState.ENDED, CallState.FAILED, CallState.BUSY]:
+                    break
+
                 if self.call.call_state is not CallState.ANSWERED:
                     continue
 
@@ -321,6 +324,12 @@ class CallHandler:
 
                 except asyncio.CancelledError:
                     break
+
+            while not self.audio_queue.empty():
+                event_type, result = await self.audio_queue.get()
+                if event_type == "audio":
+                    result.stream_done()
+                
             logger.log(logging.INFO, "The call handler has been stopped")
         except asyncio.CancelledError:
             logger.log(logging.DEBUG, "The send handler task has been cancelled")
