@@ -265,10 +265,12 @@ class SipCall:
             f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={branch_id};alias\r\n"
             f"Max-Forwards: 70\r\n"
             f"From: <sip:{self.username}@{self.server}>;tag={tag}\r\n"
-            f"To: <sip:{self.callee}@{self.server}>\r\n"
+            f"To: sip:{self.callee}@{self.server}\r\n"
             f"Call-ID: {call_id}\r\n"
             f"CSeq: {transaction.cseq} INVITE\r\n"
-            f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
+            f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS}>;expires=3600\r\n"
+            f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
+            "Supported: replaces, timer\r\n"
             "Content-Type: application/sdp\r\n"
         )
 
@@ -465,10 +467,10 @@ class SipCall:
 
         elif str(msg.status).startswith("2") and msg.method == "REFER":
             SIPTransferResult = namedtuple("SIPTransferResult", ["code", "description"])
-            if self._refer_future.done():
+            if not self._refer_future.done():
                 description = "success"
                 self._refer_future.set_result(
-                    SIPTransferResult(int(str(msg.status)), description)
+                    SIPTransferResult(int(msg.status or 0), description)
                 )
 
         elif str(msg.status).startswith(("4", "5", "6")) and msg.method == "REFER":
@@ -478,8 +480,9 @@ class SipCall:
                     if str(msg.status).startswith("4")
                     else "server error"
                 )
+        
                 self._refer_future.set_exception(
-                    SIPTransferException(int(str(msg.status)), description)
+                    SIPTransferException(int(msg.status or -1), description)
                 )
 
         elif str(msg.data).startswith("NOTIFY"):
@@ -501,6 +504,9 @@ class SipCall:
     async def error_handler(self, msg: SipMessage):
         if not msg.status:
             return
+        
+        if not self.dialogue.remote_tag:
+            self.dialogue.remote_tag = msg.to_tag or ""
 
         if not 400 <= msg.status.code <= 699:
             return
@@ -531,6 +537,9 @@ class SipCall:
                 return
             ack_message = self.ack_generator(transaction)
             await self.sip_core.send(ack_message)
+
+            if msg.status in [SIPStatus.REQUEST_PENDING]:
+                return
             # set the diologue state to TERMINATED and close
             self.dialogue.state = DialogState.TERMINATED
             self.dialogue.update_state(msg)
@@ -550,7 +559,6 @@ class SipCall:
         self.last_invite_msg = msg
 
         await self.sip_core.send(msg)
-        print(msg)
         return
 
     async def update_call_state(self, new_state):
