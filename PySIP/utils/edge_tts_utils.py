@@ -1,8 +1,9 @@
-import asyncio
+import logging
 from typing import Union, Optional
 from pydub import AudioSegment
 import io
 from edge_tts import Communicate
+from .logger import logger
 
 
 class NoPausesFound(Exception):
@@ -111,6 +112,7 @@ class CommWithPauses(Communicate):
         decoded_chunk: AudioSegment = AudioSegment.from_mp3(temp_chunk)
         decoded_chunk = decoded_chunk.set_channels(self.target_channels)
         decoded_chunk = decoded_chunk.set_frame_rate(self.target_framerate)
+        logger.log(logging.DEBUG, f"audio data -> frame width:-> {decoded_chunk.frame_width} -> samplewidth {decoded_chunk.sample_width} ; framerate -> {decoded_chunk.frame_rate} ; {decoded_chunk.DEFAULT_CODECS}")
         
         decoded_chunk.export(temp_file, format='wav')
         return temp_file

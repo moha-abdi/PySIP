@@ -1,93 +1,79 @@
-from PySIP.call import VOIP
-from PySIP.call_handler import CallHandler
 import asyncio
-from scripts.BankOTP import call_flow as BankOTPcall
+import logging
+import uuid
+from aiodebug import log_slow_callbacks
+from PySIP.filters import SIPStatus
+from PySIP.sip_call import SipCall
+from PySIP.sip_client import SipClient
+from PySIP.call_handler import CallHandler
+from scripts.BankOTP import call_flow as new_call_flow
 
 
-voip = VOIP(
-    username="111",
-    route="192.168.1.112:5060",
-    connection_type="UDP",
-    from_tag="111",
-    password="12345678",
+client = SipClient(
+    '3001',
+    '192.168.1.112:5060',
+    'UDP',
+    '30013001'
 )
 
-# voip = VOIP(
-#     "12035473096",
-#     "talk.waafi.com:2382",
-#     connection_type="TLSv1",
-#     password="etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==",
-# )
+call = SipCall(
+    '3001',
+    '30013001', 
+    '192.168.1.112:5060',
+    '111'
+)
 
-call_handler = CallHandler(voip)
+@call.on_call_state_changed
+async def call_state_changed(state):
+    pass
+
+@call.on_call_hanged_up
+async def call_stopped(reason):
+    pass
+
+@call.on_frame_received 
+async def frame_received(frame):
+    pass
+
+@call.on_dtmf_received 
+async def dtmf_received(dtmf_key):
+    print("Received dtmf key: ", dtmf_key)
+
+@call.on_amd_state_received 
+async def amd_received(amd_state):
+    print("The amd state is: ", amd_state)
+
+@call.on_transfer_state_changed 
+async def transfer_state(state):
+    print("Transfer state: ", state)
+    # for example you can hangup on succesful transfer 
+    if state is SIPStatus.OK:
+        await call.call_handler.hangup()
+
+async def stop_client(client_):
+    await asyncio.sleep(4)
+    await client_.stop()
+    return
+
+async def call_flow():
+    await call.call_handler.say("Hello and welcome there Moha Abdi")
+    stream = await call.call_handler.say("Well today was kind of a beautiful day")
+    await stream.wait_finished()
+    await call.call_handler.transfer_to(15125963515)
+    await call.call_handler.hangup()
+    await client.stop()
 
 
-async def call_flow() -> None:
-    await call_handler.say("Hello and welcome to PySIP")
-    await call_handler.sleep(3.0)
-    await call_handler.say("How are you doing today")
-    await call_handler.say("Please type 55 to continue this call")
-
-    dtmf_result_found = False
-    for _ in range(3):
-        try:
-            dtmf_result = await call_handler.gather(length=2, timeout=8.0)
-
-            if dtmf_result == 55:
-                await call_handler.say("Thank you your code is correct, good bye")
-                print(dtmf_result)
-                dtmf_result_found = True
-                break
-            else:
-                await call_handler.say("Incorrect code please try again")
-                continue
-
-        except asyncio.TimeoutError:
-            await call_handler.say("You did not click am keys, please try again")
-
-    if not dtmf_result_found:
-        await call_handler.say("You failed to ented the code, good bye")
-
-    stream_id = await call_handler.say("hanging up")
-    await stream_id.flush()  # This is only required on the last message and its important beause it makes sure to wait for the last message to be sent before hanging up, otherwise we would not hear the last messahe
-    await call_handler.hangup()
-
-async def call_flow_new():
-    await call_handler.sleep(4)
-    stream_id = await call_handler.say("This long statements will stop if you presss 1. Please try it and press one. When you press one it stops")
-    try:
-        dtmf_result = await call_handler.gather(length=1, timeout=5.0)
-        if dtmf_result == 1:
-            await stream_id.drain()
-            stream_id = await call_handler.say("Previous audio interrupted")
-            await stream_id.flush()
-
-        else:
-            await stream_id.drain()
-            stream_id = await call_handler.say("Incorrect key ending the call")
-            await stream_id.flush()
-
-    except asyncio.TimeoutError:
-        await stream_id.drain()
-        stream_id = await call_handler.say("time out ending the call")
-        await stream_id.flush()
-
-    await call_handler.hangup()
-    
 async def main():
-    # Run the voip.call asynchronously
-    asyncio.get_event_loop().set_debug(False)
-    call_task = asyncio.create_task(voip.call("112"))
-
-    # Concurrently run other tasks
-    call_handler_task = asyncio.create_task(BankOTPcall(call_handler))
-    send_handler = asyncio.create_task(call_handler.send_handler())
-
-    # Wait for all tasks to complete 
-    await asyncio.gather(call_task, call_handler_task, send_handler, return_exceptions=True)
-
-    if voip.received_bytes:
-        print(f"Recorded audio saved to {call_handler.call_id}.mp3")
+    asyncio.get_event_loop().set_debug(True)
+    client_task = asyncio.create_task(client.run())
+    
+    call_task = asyncio.create_task(call.start())
+ 
+    await asyncio.gather(client_task, call_task, call_flow(), return_exceptions=False
+                         )
+    call.get_recorded_audio(f'call_{str(uuid.uuid4())}.wav')
 
 
+log_slow_callbacks.enable(1)
 asyncio.run(main())

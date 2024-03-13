@@ -6,4 +6,16 @@ class SIPTransferException(Exception):
         self.description = description
 
 
+class NoPasswordFound(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
 
+
+class NoSupportedCodecsFound(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+
+
+class AudioStreamError(Exception):
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
