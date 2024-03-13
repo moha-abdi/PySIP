@@ -403,6 +403,7 @@ class SipMessage:
     def __init__(self, message: str = None) -> None:
         self.headers = {}
         self.body = None
+        self.body_data = None
         self.nonce = None
         self.realm = None
         self.data = message

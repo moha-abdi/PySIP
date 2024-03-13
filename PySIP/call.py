@@ -2,7 +2,7 @@ import asyncio
 from collections import namedtuple
 from math import prod
 import signal
-from typing import Literal
+from typing import List, Literal
 import wave
 import edge_tts
 from .CustomCommuicate import CommWithPauses, NoPausesFound
@@ -280,15 +280,16 @@ class VOIP:
                         prack = self.client.prack_generator()
                         await self.client.send(prack)
 
-                    if self.last_body or msg.body:
-                        self.call_made = True
+                    if (self.last_body or msg.body) and not self.call_made:
+                        # self.call_made = True
                         self.call_state = CallState.RINGING
-                        await self.make_call(msg)
+                        # await self.make_call(msg)
 
         @self.client.on_message(filters=SipFilter.REFER)
         async def handle_refer(msg: SipMessage):
             if not msg.status:
                 return
+            print("A response for refer is received: ", msg.status)
 
             if str(msg.status).startswith('2'):
                 """handle success"""
@@ -313,6 +314,7 @@ class VOIP:
 
 
     async def make_call(self, message: SipMessage):
+        print("I am called")
         body = self.last_body
         if message.body:
             body = message.body
@@ -332,6 +334,8 @@ class VOIP:
         self.rtp_session = rtp_session
         rtp_session.start()
         _print_debug_info("RTP session now started")
+        # create a task for the amd runner
+        asyncio.create_task(rtp_session.amd.run_detector())
         # asyncio.create_task(self.send_periodic_ping(16), name='pysip_7')
         # asyncio.create_task(self.audio_writer(rtp_session), name='pysip_3')
         # asyncio.create_task(self.dtmf_test(length=4), name='pysip_5')
@@ -452,7 +456,7 @@ class DTMFHandler:
         self.queue: janus.Queue[str] = janus.Queue()
         self.dtmf_queue = asyncio.Queue()
         self.started_typing_event = asyncio.Event()
-        self.dtmf_codes = []
+        self.dtmf_codes: List[str] = []
 
     def dtmf_callback(self, code: str) -> None:
         self.queue.sync_q.put(code)
@@ -460,10 +464,11 @@ class DTMFHandler:
 
     async def started_typing(self, event):
         await self.started_typing_event.wait()
+        self.started_typing_event.clear()
         await event()
 
     async def get_dtmf(self, length=1, finish_on_key=None) -> str:
-        dtmf_codes = []
+        dtmf_codes: List[str] = []
 
         if finish_on_key:
             while True:

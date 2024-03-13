@@ -24,7 +24,7 @@ __all__ = [
     'rtp'
 ]
 
-__version__ = "1.2.0"
+__version__ = "1.5.0"
 __license__ = "MIT License"
 __copyright__ = "Copyright (C) 2023-present Moha"
 

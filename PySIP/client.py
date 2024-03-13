@@ -374,7 +374,7 @@ class Client:
         else:
             tag = self.generate_tag()
             call_id = self.call_id
-            generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
+            # generated_checksum = self.generate_password(method='INVITE') # not required for most SIPs
 
             msg = f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
             msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
@@ -531,17 +531,17 @@ class Client:
         # referred-by header - similar to the from header in invite
         referred_by = f"sip:{self.from_tag}@{self.server}"
 
-        msg = f"refer sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} sip/2.0\r\n"
-        msg += f"via: sip/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
-        msg += f"max-forwards: 70\r\n"
-        msg += f"from: sip:{self.from_tag}@{self.server};tag={self.generate_tag()}\r\n"
-        msg += f"to: sip:{self.callee}@{self.server}\r\n"
-        msg += f"call-id: {self.call_id}\r\n"
-        msg += f"cseq: {self.register_counter.next()} refer\r\n"
-        msg += f"refer-to: {refer_to}\r\n"
-        msg += f"referred-by: {referred_by}\r\n"
-        msg += f"contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
-        msg += f"content-length: 0\r\n\r\n"
+        msg = f"REFER sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} sip/2.0\r\n"
+        msg += f"Via: sip/2.0/{self.CTS} {ip}:{port};rport;branch={str(uuid.uuid4()).upper()};alias\r\n"
+        msg += f"Max-Forwards: 70\r\n"
+        msg += f"From: sip:{self.from_tag}@{self.server};tag={self.on_call_tags['From']}\r\n"
+        msg += f"To: sip:{self.callee}@{self.server};tag={self.on_call_tags['To']}\r\n"
+        msg += f"Call-ID: {self.call_id}\r\n"
+        msg += f"CSeq: {self.register_counter.next()} REFER\r\n"
+        msg += f"Refer-To: {refer_to}\r\n"
+        msg += f"Referred-By: {referred_by}\r\n"
+        msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
+        msg += f"Content-Length: 0\r\n\r\n"
 
         return msg
 
@@ -744,3 +744,9 @@ class Client:
         elif msg.status == SIPStatus(200) and msg.method == "INVITE":
             # This is when we receive the response for the invite
             _print_debug_info("RE-INVITED...")
+
+        elif str(msg.data).startswith('NOTIFY'):
+            if msg.body_data:
+                _print_debug_info(f"Transfer status: ", msg.body_data.split(' ')[-1])
+            message = self.ok_generator(msg)
+            await self.send(message)

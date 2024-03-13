@@ -13,8 +13,9 @@ import numpy as np
 from pydub import AudioSegment
 from scipy.io import wavfile
 
-from PySIP.call_handler import AudioStream
-from PySIP.utils.inband_dtmf import dtmf_decode
+from .amd.amd import AnswringMachineDetector
+from .call_handler import AudioStream
+from .utils.inband_dtmf import dtmf_decode
 from . import _print_debug_info
 from .filters import PayloadType
 
@@ -158,6 +159,7 @@ class RTPMessage:
         self.sequence = 0
         self.timestamp = 0
         self.SSRC = 0
+        self.length = 0
 
         self.parse(data)
 
@@ -216,6 +218,7 @@ class RTPMessage:
             pass
 
         self.payload = packet[i:]
+        self.length = len(self.payload)
 
 
 class RTPClient:
@@ -250,7 +253,7 @@ class RTPClient:
                     break
             except Exception:
                 _print_debug_info(f"{assoc[m]} cannot be selected as an audio codec")
-
+        self.assoc[13] = PayloadType.CN # added CN so that comfort noise isnt skipped
         self.is_dtmf_supported = any(payload_type == PayloadType.EVENT for payload_type in assoc.values())
         if not self.preference:
             raise NoSupportedCodecsFound("No supported codecs found closing...")
@@ -259,6 +262,7 @@ class RTPClient:
         self.inPort = inPort
         self.outIP = outIP
         self.outPort = outPort
+        self.amd = AnswringMachineDetector()
         _print_debug_info(f"Sending from: {self.inIP}:{self.inPort}\nsending to: {self.outIP}:{self.outPort}")
 
         self.dtmf = dtmf
@@ -494,10 +498,15 @@ class RTPClient:
         msg = RTPMessage(packet, self.assoc)
         if msg.payload_type == PayloadType.PCMU:
             self.parsePCMU(msg)
+            self.amd.update_packet(msg)
         elif msg.payload_type == PayloadType.PCMA:
             self.parsePCMA(msg)
+            self.amd.update_packet(msg)
+        elif msg.payload_type == PayloadType.CN:
+            self.amd.update_packet(msg)
         elif msg.payload_type == PayloadType.EVENT:
             self.parseTelephoneEvent(msg)
+            self.amd.update_packet(msg)
         else:
             raise RTPParseError(
                 "Unsupported codec (parse): " + str(msg.payload_type)
