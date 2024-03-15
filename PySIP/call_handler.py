@@ -203,13 +203,15 @@ class CallHandler:
             return (result, None)
 
         except asyncio.TimeoutError:
-            return (None, "Timed out")
+            err = SIPTransferException(408, "Request Timeout")
+            return (None, err)
 
-        except SIPTransferException as e:
-            return (None, e.description)
+        except SIPTransferException as exc:
+            return (None, exc)
 
-        except Exception:
-            return (None, "Unknown error")
+        except Exception as exc:
+            err = SIPTransferException(9999, f"Unknown Error: {exc}")
+            return (None, err)
 
     async def sleep(self, delay: float):
         await self.audio_queue.put(("sleep", delay))
