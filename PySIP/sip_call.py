@@ -11,12 +11,9 @@ from PySIP.exceptions import SIPTransferException
 
 from .rtp_handler import RTP_PORT_RANGE, RTPClient, TransmitType
 from .sip_core import Counter, DialogState, SipCore, SipDialogue, SipMessage
-from pydub import AudioSegment
-import os
-import janus
 
 from .filters import SIPCompatibleMethods, SIPStatus, CallState
-from .utils.logger import logger
+from .utils.logger import logger, get_call_logger
 from .codecs import CODECS
 
 __all__ = ["SipCall", "DTMFHandler"]
@@ -177,6 +174,7 @@ class SipCall:
         for cb in self._get_callbacks("hanged_up_cb"):
             logger.log(logging.DEBUG, f"The call has been hanged up due to: {reason}")
             await cb(reason)
+        logger.log(logging.DEBUG, "CALL HANGUP REASON: %s", reason)
 
         # also check for any rtp session and stop it
         await self._cleanup_rtp()
