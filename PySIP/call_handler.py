@@ -9,7 +9,7 @@ from .filters import CallState
 from .audio_stream import AudioStream
 from .utils.async_utils import wait_for
 from .utils.logger import logger
-from .utils.edge_tts_utils import CommWithPauses
+from .utils import generate_audio
 from .exceptions import SIPTransferException
 
 
@@ -23,7 +23,7 @@ class CallHandler:
     async def say(self, text: str):
         try:
             _audio_task = asyncio.create_task(
-                CommWithPauses(text, self._voice).generate_audio(text=text)
+                generate_audio(text, self.voice)
             )
             app_stopped_task = asyncio.create_task(self.call._wait_stopped())
 
