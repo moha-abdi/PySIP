@@ -187,49 +187,6 @@ class CallHandler:
 
         return dtmf_result
 
-    async def gather_and_play(
-        self,
-        file_name: str,
-        format: str = 'wav',
-        length: int = 1,
-        delay: int = 7,
-        loop: int = 3,
-        finish_on_key=None,
-        loop_audio_file: str = "",
-        delay_audio_file: str = "",
-    ):
-        """This method waits for dtmf keys and then if received
-        it instantly send it"""
-        if not asyncio.current_task() in self.call.client.pysip_tasks:
-            self.call.client.pysip_tasks.append(asyncio.current_task())
-
-        dtmf_result = None
-        for _ in range(loop):
-            try:
-                stream = await self.play(file_name, format)
-                dtmf_result = await self.gather(
-                    length=length, timeout=delay, finish_on_key=finish_on_key,
-                    stream=stream
-                )
-                if dtmf_result:
-                    dtmf_result = dtmf_result
-                    return dtmf_result
-
-            except asyncio.TimeoutError:
-                if delay_audio_file:
-                    await self.play(delay_audio_file, format=format)
-                else:
-                    await self.say("You did not any keys please try again")
-                continue
-
-        if loop_audio_file:
-            stream = await self.play(loop_audio_file, format=format)
-        else:
-            stream = await self.say(f"You failed to enter the key in {loop} tries. Hanging up the call")
-        await stream.flush()
-
-        return dtmf_result
-
     async def transfer_to(self, to: str | int):
         """
         Transfer the call that is currently on-going to the specified `to`
@@ -246,13 +203,15 @@ class CallHandler:
             return (result, None)
 
         except asyncio.TimeoutError:
-            return (None, "Timed out")
+            err = SIPTransferException(408, "Request Timeout")
+            return (None, err)
 
-        except SIPTransferException as e:
-            return (None, e.description)
+        except SIPTransferException as exc:
+            return (None, exc)
 
-        except Exception:
-            return (None, "Unknown error")
+        except Exception as exc:
+            err = SIPTransferException(9999, f"Unknown Error: {exc}")
+            return (None, err)
 
     async def sleep(self, delay: float):
         await self.audio_queue.put(("sleep", delay))

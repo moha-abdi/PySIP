@@ -468,7 +468,7 @@ class SipCall:
         elif str(msg.status).startswith("2") and msg.method == "REFER":
             SIPTransferResult = namedtuple("SIPTransferResult", ["code", "description"])
             if not self._refer_future.done():
-                description = "success"
+                description = "Success"
                 self._refer_future.set_result(
                     SIPTransferResult(int(msg.status or 0), description)
                 )
@@ -476,9 +476,9 @@ class SipCall:
         elif str(msg.status).startswith(("4", "5", "6")) and msg.method == "REFER":
             if not self._refer_future.done():
                 description = (
-                    "client error"
+                    "Client Error"
                     if str(msg.status).startswith("4")
-                    else "server error"
+                    else "Server Error"
                 )
         
                 self._refer_future.set_exception(
