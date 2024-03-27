@@ -39,13 +39,15 @@ class SipClient:
         self.register_counter = Counter(random.randint(1, 2000))
         self.register_tags = {"local_tag": "", "remote_tag": "", "type": "", "cseq": 0}
         self.unregistered = asyncio.Event()
-        self.my_public_ip = self.sip_core.get_public_ip()
-        self.my_private_ip = self.sip_core.get_local_ip()
+        self.my_public_ip = None
+        self.my_private_ip = None
 
     async def run(self):
         register_task = None
         receive_task = None
         try:
+            self.my_public_ip = await asyncio.to_thread(self.sip_core.get_public_ip)
+            self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
             await self.sip_core.connect()
             register_task = asyncio.create_task(self.periodic_register(60), name='Periodic Register')
             receive_task = asyncio.create_task(self.sip_core.receive(), name='Receive Messages Task')

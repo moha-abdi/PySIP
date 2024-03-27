@@ -8,7 +8,6 @@ class UdpHandler(asyncio.DatagramProtocol):
         self.transport: Optional[asyncio.DatagramTransport] = None
         self.data_q: asyncio.Queue = asyncio.Queue()
         self.loop = loop
-        self.count = 0
         super().__init__()
 
     def connection_made(self, transport) -> None:
@@ -23,15 +22,14 @@ class UdpHandler(asyncio.DatagramProtocol):
     def error_received(self, exc: Exception) -> None:
         logger.log(logging.ERROR, "An error received: %s", exc, exc_info=True)
 
-    def send_message(self, message: bytes, address: tuple = None) -> None:
+    def send_message(self, message: bytes, address: Optional[tuple] = None) -> None:
         if not self.transport:
             logger.log(logging.WARNING, "Unable to send message due to Transport closed")
             return
         self.transport.sendto(message)
 
     def datagram_received(self, data: bytes, addr: tuple[str | Any, int]) -> None:
-        asyncio.run_coroutine_threadsafe(self.data_q.put(data), self.loop)
-        self.count += 1
+        self.data_q.put_nowait(data)
 
     async def read(self):
         return await self.data_q.get()
@@ -50,7 +48,7 @@ class UdpWriter:
         self.protocol = protocol
 
     async def write(self, data: bytes):
-        self.protocol.send_message(data)
+        self.protocol.send_message(data) 
 
     def get_extra_info(self, name, default=None):
         if not self.protocol.transport:
@@ -59,7 +57,7 @@ class UdpWriter:
         return self.protocol.transport.get_extra_info(name, default)
 
 
-async def open_udp_connection(remote_addr: Tuple[str, int], local_addr: Tuple[str, int]=None):
+async def open_udp_connection(remote_addr: Tuple[str, int], local_addr: Optional[Tuple[str, int]]=None):
     loop = asyncio.get_event_loop()
     transport, protocol = await loop.create_datagram_endpoint(
         lambda: UdpHandler(loop),

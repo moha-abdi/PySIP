@@ -11,12 +11,9 @@ from PySIP.exceptions import SIPTransferException
 
 from .rtp_handler import RTP_PORT_RANGE, RTPClient, TransmitType
 from .sip_core import Counter, DialogState, SipCore, SipDialogue, SipMessage
-from pydub import AudioSegment
-import os
-import janus
 
 from .filters import SIPCompatibleMethods, SIPStatus, CallState
-from .utils.logger import logger
+from .utils.logger import logger, get_call_logger
 from .codecs import CODECS
 
 __all__ = ["SipCall", "DTMFHandler"]
@@ -68,8 +65,8 @@ class SipCall:
         self.call_id = self.sip_core.gen_call_id()
         self.cseq_counter = Counter(random.randint(1, 2000))
         self.CTS = "TLS" if "TLS" in connection_type else connection_type
-        self.my_public_ip = self.sip_core.get_public_ip()
-        self.my_private_ip = self.sip_core.get_local_ip()
+        self.my_public_ip = None
+        self.my_private_ip = None
         self._rtp_session: Optional[RTPClient] = None
         self._call_handler = CallHandler(self)
         self._dtmf_handler = DTMFHandler()
@@ -81,11 +78,14 @@ class SipCall:
     async def start(self):
         _tasks = []
         try:
+            self.my_public_ip = await asyncio.to_thread(self.sip_core.get_public_ip)
+            self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
             self.setup_local_session()
             self.dialogue.username = self.username
             await self.sip_core.connect()
             # regiser the callback for when the call is ANSWERED
             self._register_callback("state_changed_cb", self.on_call_answered)
+            self._register_callback("dtmf_callback", self._dtmf_handler.dtmf_callback)
             receive_task = asyncio.create_task(
                 self.sip_core.receive(), name="Receive Messages Task"
             )
@@ -174,6 +174,7 @@ class SipCall:
         for cb in self._get_callbacks("hanged_up_cb"):
             logger.log(logging.DEBUG, f"The call has been hanged up due to: {reason}")
             await cb(reason)
+        logger.log(logging.DEBUG, "CALL HANGUP REASON: %s", reason)
 
         # also check for any rtp session and stop it
         await self._cleanup_rtp()

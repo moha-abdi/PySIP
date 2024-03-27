@@ -25,3 +25,8 @@ def setup_logger():
 logger = setup_logger()
 console_handler = logger.handlers[0]
 file_handler = logger.handlers[1]
+
+def get_call_logger(call_id):
+    call_logger = logging.LoggerAdapter(logger, {'call_id': call_id})
+    return call_logger
+

@@ -1,15 +1,14 @@
 import asyncio
 import logging
-from typing import List, Optional
 
+from typing import List, Optional
 from pydub import AudioSegment
 from scipy.io.wavfile import io
-
 from .filters import CallState
 from .audio_stream import AudioStream
 from .utils.async_utils import wait_for
 from .utils.logger import logger
-from .utils.edge_tts_utils import CommWithPauses
+from .utils import generate_audio
 from .exceptions import SIPTransferException
 
 
@@ -23,7 +22,7 @@ class CallHandler:
     async def say(self, text: str):
         try:
             _audio_task = asyncio.create_task(
-                CommWithPauses(text, self._voice).generate_audio(text=text)
+                generate_audio(text, self.voice)
             )
             app_stopped_task = asyncio.create_task(self.call._wait_stopped())
 
@@ -38,8 +37,10 @@ class CallHandler:
                     _t.cancel()
                 self.audio_bytes = await _audio_task
                 self.audio_stream = AudioStream(self.audio_bytes)
-                await self.audio_stream.recv()
+                await asyncio.to_thread(self.audio_stream.recv)
                 await self.audio_queue.put(("audio", self.audio_stream))
+                if not self.call.sip_core.is_running.is_set():
+                    self.audio_stream.stream_done()
                 return self.audio_stream
 
             # If the application stops before audio processing completes
@@ -73,7 +74,7 @@ class CallHandler:
         decoded_chunk.export(temp_file, format="wav")
 
         self.audio_stream = AudioStream(temp_file)
-        await self.audio_stream.recv()
+        await asyncio.to_thread(self.audio_stream.recv)
         await self.audio_queue.put(("audio", self.audio_stream))
 
         return self.audio_stream
@@ -331,6 +332,9 @@ class CallHandler:
                 event_type, result = await self.audio_queue.get()
                 if event_type == "audio":
                     result.stream_done()
+
+            if self.previous_stream:
+                self.previous_stream.stream_done()
                 
             logger.log(logging.INFO, "The call handler has been stopped")
         except asyncio.CancelledError:
