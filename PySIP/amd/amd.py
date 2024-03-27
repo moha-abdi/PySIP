@@ -73,9 +73,7 @@ class AnswringMachineDetector:
         while True:
             try:
                 start_time = time.monotonic_ns() / 1e6
-                data = await asyncio.wait_for(
-                    input_q.get(), self.max_wait_time_for_frame * 2
-                )
+                data = input_q.get(block=True, timeout=self.max_wait_time_for_frame * 2)
                 end_time = time.monotonic_ns() / 1e6
 
                 # figure out how much we waited
