@@ -5,6 +5,7 @@ import logging
 import random
 from struct import unpack, unpack_from
 import time
+import threading
 import numpy as np
 from typing import Callable, Dict, List, Optional, Union
 from PySIP.amd.amd import AnswringMachineDetector
@@ -110,6 +111,7 @@ class RTPClient:
         self.__sequence_number = random.randint(200, 800)
         self.__jitter_buffer = JitterBuffer(16, 4)
         self.__callbacks = callbacks
+        self.__send_thread = None
 
     async def _start(self):
         self.is_running.set()
@@ -119,8 +121,22 @@ class RTPClient:
             f"LOCAL: {self.src_ip}:{self.src_port} -- "
             f"SERVER: {self.dst_ip}:{self.dst_port}"
         )
-        self.udp_reader, self.udp_writer = await open_udp_connection(
-            (self.dst_ip, self.dst_port), (self.src_ip, self.src_port)
+        self.__rtp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.__rtp_socket.bind((self.src_ip, self.src_port))
+        self.__rtp_socket.setblocking(False)
+
+        # Start send thread 
+        loop = asyncio.get_event_loop()
+        self.__send_thread = threading.Thread(
+            target=self.send,
+            name='Send Audio Thread',
+            args=(
+                loop,
+            ),
+        )
+        self.__all_threads.append(self.__send_thread)
+        self.__send_thread.start()
+
         )
 
         send_task = asyncio.create_task(self.send(), name="Rtp Send Task")
@@ -264,17 +280,21 @@ class RTPClient:
             loop.run_in_executor(None, dtmf_detector_worker, _buffer, callbacks, loop)
             await asyncio.sleep(0.01)
 
-    async def send(self):
+    def send(self, loop: asyncio.AbstractEventLoop):
         while True:
+            if self.__rtp_socket is None or self.__rtp_socket.fileno() < 0:
+                break
             start_processing = time.monotonic_ns()
 
+            audio_stream = self.get_audio_stream()
             if not self.is_running.is_set():
-                logger.log(logging.DEBUG, "Succesfully stopped the sender worker")
+                if audio_stream:
+                    logger.log(logging.INFO, "Stream ID: %s Set to Done.", audio_stream.stream_id)
+                    loop.call_soon_threadsafe(audio_stream.stream_done)
                 break
 
-            audio_stream = self.get_audio_stream()
             if not audio_stream and not SEND_SILENCE:
-                await asyncio.sleep(0.02)  # avoid busy-waiting
+                time.sleep(0.02)
                 continue
 
             try:
@@ -282,22 +302,22 @@ class RTPClient:
                     payload = self.generate_silence_frames()
                 else:
                     payload = audio_stream.input_q.get_nowait()
-            except asyncio.QueueEmpty:
-                await asyncio.sleep(0.02)
+            except queue.Empty:
+                time.sleep(0.02)
                 continue
 
             # if all frames are sent then continue
             if not payload:
-                await asyncio.sleep(0.02)
+                time.sleep(0.02)
                 if audio_stream is None:
                     continue
                 logger.log(
                     logging.DEBUG,
                     f"Sent all frames from source with id: {audio_stream.stream_id}",
                 )
-                audio_stream.stream_done()
+                loop.call_soon_threadsafe(audio_stream.stream_done)
                 continue
-
+            
             encoded_payload = self.__encoder.encode(payload)
             packet = RtpPacket(
                 payload_type=self.selected_codec,
@@ -306,17 +326,23 @@ class RTPClient:
                 timestamp=self.__timestamp,
                 ssrc=self.ssrc,
             ).serialize()
-            if not self.udp_writer:
-                raise ValueError("Couldnt send data. No UdpWriter found")
-            await self.udp_writer.write(packet)
+            try:
+                self.__rtp_socket.setblocking(True)
+                self.__rtp_socket.sendto(packet, (self.dst_ip, self.dst_port))
+                self.__rtp_socket.setblocking(False)
+            except OSError:
+                logger.log(logging.ERROR, "Failed to send RTP Packet", exc_info=True)
 
             delay = (1 / self.selected_codec.rate) * 160
             processing_time = (time.monotonic_ns() - start_processing) / 1e9
             sleep_time = delay - processing_time
+            sleep_time = max(0, sleep_time)
             self.__sequence_number = (self.__sequence_number + 1) % 65535  # Wrap around at 2^16 - 1
             self.__timestamp = (self.__timestamp + len(encoded_payload)) % 4294967295  # Wrap around at 2^32 -1
 
-            await asyncio.sleep(sleep_time)
+            time.sleep(sleep_time)
+        
+        logger.log(logging.DEBUG, "Sender thread has been successfully closed") 
 
     async def receive(self):
         if not self.udp_reader:
