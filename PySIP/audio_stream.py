@@ -1,4 +1,5 @@
 import logging
+import queue
 from .utils.logger import logger
 from wave import Wave_read
 import asyncio
@@ -12,20 +13,18 @@ class AudioStream(Wave_read):
         super().__init__(f)
 
         self.audio_length = self.getnframes() / float(self.getframerate())
-        self.input_q: asyncio.Queue = asyncio.Queue()
+        self.input_q: queue.Queue = queue.Queue() # Used queue.Queue instead of asyncio.Queue for it's thread-safity
 
-    async def recv(self):
+    def recv(self):
         logger.log(logging.DEBUG, f"Started stream now - id ({self.stream_id})")
         while True:
-            await asyncio.sleep(0)
-
             frame = self.readframes(160) # 80 not 160 so that it can fit 160 samples when encoded
             if not frame:
                 logger.log(logging.DEBUG, "Done preparing all frames in AudioStream")
                 # put None to the q to indicate end of stream
-                await self.input_q.put(None)
+                self.input_q.put(None)
                 break
-            await self.input_q.put(frame)
+            self.input_q.put(frame)
 
     @property
     def audio_length(self):
