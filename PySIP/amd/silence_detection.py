@@ -10,7 +10,7 @@ class SilenceDetection:
         if frame.size <= 0:
             return 0 # to avoid division by zero
         accum = np.sum(np.abs(frame))
-        accum /= frame.size
+        accum = np.divide(accum, frame.size)
 
         if accum < self.silence_threshold:
             # print("The accum is: ", accum)

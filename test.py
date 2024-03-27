@@ -55,12 +55,11 @@ async def stop_client(client_):
     await client_.stop()
     return
 
-async def call_flow():
-    await call.call_handler.say("Hello and welcome there Moha Abdi")
-    stream = await call.call_handler.say("Well today was kind of a beautiful day")
+async def call_flow(_call):
+    stream = await _call.call_handler.say("Well today was kind of a beautiful day")
     await stream.wait_finished()
-    await call.call_handler.transfer_to(15125963515)
-    await call.call_handler.hangup()
+    await _call.call_handler.transfer_to(3001)
+    await _call.call_handler.hangup()
     await client.stop()
 
 
@@ -70,10 +69,35 @@ async def main():
     
     call_task = asyncio.create_task(call.start())
  
-    await asyncio.gather(client_task, call_task, call_flow(), return_exceptions=False
+    await asyncio.gather(client_task, call_task, call_flow(call), return_exceptions=False
                          )
     call.get_recorded_audio(f'call_{str(uuid.uuid4())}.wav')
 
+async def main_new():
+    asyncio.get_event_loop().set_debug(True)
+    client_task = asyncio.create_task(client.run())
 
-log_slow_callbacks.enable(1)
-asyncio.run(main())
+    calls = []
+    call_tasks = []
+    call_handlers = []
+    for i in range(10):
+        c = '111' if i == 5 else '112'
+        print(c)
+        call = SipCall('3001', '30013001', '192.168.1.112:5060', c)
+        calls.append(call)
+
+        call_task = asyncio.create_task(call.start())
+        call_tasks.append(call_task)
+
+        call_handler_task = asyncio.create_task(call_flow(call))
+        call_handlers.append(call_handler_task)
+
+    await asyncio.gather(client_task, *call_tasks, *call_handlers)
+
+    for c in calls:
+        c.get_recorded_audio(f"call_{c.call_id}")
+
+
+# Protect the entery-point because we use ProcessPoolExecutor
+if __name__ == "__main__":
+    asyncio.run(main_new())

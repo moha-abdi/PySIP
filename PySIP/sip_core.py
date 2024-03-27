@@ -143,6 +143,19 @@ class SipCore:
 
         return response_hash
 
+    @staticmethod
+    def generate_response_new(username, password, method, nonce, realm, uri):
+        A1_string = username + ":" + realm + ":" + password
+        A1_hash = hashlib.md5(A1_string.encode()).hexdigest()
+
+        A2_string = (method + ":" + uri).encode()
+        A2_hash = hashlib.md5(A2_string).hexdigest()
+
+        response_string = (A1_hash + ":" + nonce + ":" + A2_hash).encode()
+        response_hash = hashlib.md5(response_string).hexdigest()
+
+        return response_hash
+
     async def connect(self):
         try:
             if self.connection_type == ConnectionType.TCP:
@@ -271,7 +284,7 @@ class SipCore:
                     await asyncio.sleep(0.01)
                     continue  # very important!!
 
-            sip_messages = self.extract_sip_messages(data)
+            sip_messages = await asyncio.to_thread(self.extract_sip_messages, data)
 
             for sip_message_data in sip_messages:
                 await self.send_to_callbacks(sip_message_data.decode())
