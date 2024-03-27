@@ -112,6 +112,7 @@ class RTPClient:
         self.__jitter_buffer = JitterBuffer(16, 4)
         self.__callbacks = callbacks
         self.__send_thread = None
+        self.__recv_thread = None
 
     async def _start(self):
         self.is_running.set()
@@ -137,7 +138,16 @@ class RTPClient:
         self.__all_threads.append(self.__send_thread)
         self.__send_thread.start()
 
+        # Start recv thread
+        self.__recv_thread = threading.Thread(
+            target=self.receive_sync,
+            name='Receive Audio Thread',
+            args=(
+                loop,
+            ),
         )
+        self.__all_threads.append(self.__recv_thread)
+        self.__recv_thread.start()
 
         send_task = asyncio.create_task(self.send(), name="Rtp Send Task")
         receive_task = asyncio.create_task(self.receive(), name="Rtp receive Task")
@@ -344,28 +354,28 @@ class RTPClient:
         
         logger.log(logging.DEBUG, "Sender thread has been successfully closed") 
 
-    async def receive(self):
-        if not self.udp_reader:
-            logger.log(logging.CRITICAL, "There is no UdpReader, can't read!")
-            return
+    def receive_sync(self, loop):
+        while True:
+            if not self.is_running.is_set():
+                break
+            if self.__rtp_socket is None or self.__rtp_socket.fileno() < 0:
+                    break
 
-        while True: 
-            try:
-                data = await self.udp_reader.read()
+            try: 
+                data = self.__rtp_socket.recv(4096)
                 if data is None:
-                    logger.log(logging.DEBUG, "Receiver handler stopped.")
                     break
 
                 packet = RtpPacket.parse(data)
                 if packet.payload_type == CodecInfo.EVENT:
                     # handle rfc 2833 
-                    await self._handle_rfc_2833(packet)
-                    await asyncio.sleep(0.01)
+                    # await self._handle_rfc_2833(packet)
+                    time.sleep(0.01)
                     continue
 
                 if packet.payload_type not in CODECS:
                     logger.log(logging.WARNING, f"Unsupported codecs received, {packet.payload_type}")
-                    await asyncio.sleep(0.01)
+                    time.sleep(0.01)
                     continue
 
                 encoded_frame = self.__jitter_buffer.add(packet)
@@ -375,18 +385,29 @@ class RTPClient:
                         self.__amd_detector.amd_started.set()
                     decoded_frame = self.__decoder.decode(encoded_frame.data)
                     for output_q in self._output_queues.values():
-                        await output_q.put(decoded_frame)
+                        if isinstance(output_q, asyncio.Queue):
+                            # asyncio.run_coroutine_threadsafe(output_q.put(decoded_frame), loop)
+                            loop.call_soon_threadsafe(output_q.put_nowait, decoded_frame)
+                            pass
+                        elif isinstance(output_q, queue.Queue):
+                            output_q.put(decoded_frame)
 
-                await asyncio.sleep(0)
+                time.sleep(0.01)
 
-            except asyncio.TimeoutError:
-                await asyncio.sleep(0.01)
-                continue  # this is neccesary to avoid blocking of checking
-                # whether app is runing or not
+            except BlockingIOError:
+                time.sleep(0.01)
+            except OSError:
+                time.sleep(0.01)
+                logger.log(logging.ERROR, "An error occured while receiving data", exc_info=True)
 
-        # finally put None in to the q to tell stream ended 
+        # finally put None in to the q to tell stream ended
         for output_q in self._output_queues.values():
-            await output_q.put(None)
+            if isinstance(output_q, asyncio.Queue):
+                asyncio.run_coroutine_threadsafe(output_q.put(None), loop)
+            elif isinstance(output_q, queue.Queue):
+                output_q.put(None)
+
+        logger.log(logging.DEBUG, "Receiver socket successfully closed") 
 
     async def frame_monitor(self):
         # first add stream queue to the output _output_queues
