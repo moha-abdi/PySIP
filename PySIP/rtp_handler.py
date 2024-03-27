@@ -1,11 +1,16 @@
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 import logging
+import queue
 import random
+import socket
 from struct import unpack, unpack_from
 import time
 import threading
+import uuid
+import wave
 import numpy as np
 from typing import Callable, Dict, List, Optional, Union
 from PySIP.amd.amd import AnswringMachineDetector
@@ -49,7 +54,7 @@ def decoder_worker(input_data, output_qs, loop):
 @dataclass 
 class DTMFBuffer:
     """for accumulating data for INBAND dtmf detection"""
-    duration: int = 1
+    duration: int | float = 0.5
     buffer = np.array([], np.int16)
     size: int = 0
     rate: int = 8000
@@ -59,11 +64,15 @@ class DTMFBuffer:
 
 
 def dtmf_detector_worker(input_buffer, _callbacks, loop):
+    with ProcessPoolExecutor() as executor:
+        future = executor.submit(dtmf_decode, input_buffer.buffer, input_buffer.rate)
+        dtmf_codes = future.result()
     dtmf_codes = dtmf_decode(input_buffer.buffer, input_buffer.rate)
 
     for cb in _callbacks:
         for code in dtmf_codes:
-            asyncio.run_coroutine_threadsafe(cb(code), loop)
+            # asyncio.run_coroutine_threadsafe(cb(code), loop)
+            pass
     # finally reset buffer
     for code in dtmf_codes:
         logger.log(logging.DEBUG, "Detected INBAND DTMF key: %s", code)
@@ -102,7 +111,7 @@ class RTPClient:
         self.send_lock = asyncio.Lock()
         self.is_running = asyncio.Event()
         self._input_queue: asyncio.Queue = asyncio.Queue()
-        self._output_queues: Dict[str, asyncio.Queue] = {'audio_record': asyncio.Queue()}
+        self._output_queues: Dict[str, asyncio.Queue | queue.Queue] = {'audio_record': asyncio.Queue()}
         self._audio_stream: Optional[AudioStream] = None
         self.__encoder = get_encoder(self.selected_codec)
         self.__decoder = get_decoder(self.selected_codec)
@@ -113,6 +122,9 @@ class RTPClient:
         self.__callbacks = callbacks
         self.__send_thread = None
         self.__recv_thread = None
+        self.__amd_thread = None
+        self.__dtmf_thread = None
+        self.__all_threads: List[threading.Thread] = []
 
     async def _start(self):
         self.is_running.set()
@@ -149,68 +161,46 @@ class RTPClient:
         self.__all_threads.append(self.__recv_thread)
         self.__recv_thread.start()
 
-        send_task = asyncio.create_task(self.send(), name="Rtp Send Task")
-        receive_task = asyncio.create_task(self.receive(), name="Rtp receive Task")
-        frame_monitor_task = asyncio.create_task(self.frame_monitor(), name="Frame Monitor Task")
-        _tasks = [send_task, receive_task, frame_monitor_task]
 
-        amd_task = None
+        self.__amd_detector = None
         if USE_AMD_APP: 
             self.__amd_detector = AnswringMachineDetector()
             # create an input for the amd
-            self._output_queues["amd_app"] = amd_input = asyncio.Queue()
-            amd_cb = [self.__callbacks.get("amd_app") if self.__callbacks else []][0]
-            amd_task = asyncio.create_task(self.__amd_detector.run_detector(
-                amd_input,
-                amd_cb
-            ), name="AMD App Task")
-            _tasks.append(amd_task)
-
-        dtmf_task = None
-        if DTMF_MODE is DTMFMode.INBAND:
-            dtmf_task = asyncio.create_task(self._handle_inband(), name="Inband Dtmf Task")
-            _tasks.append(dtmf_task)
-
-        try: 
-            await asyncio.gather(*_tasks)
-        except asyncio.CancelledError: 
-            _task = asyncio.current_task()
-            if _task and _task.cancelling() > 0:
-                raise
-
-        except Exception as e:
-            logger.log(logging.ERROR, e, exc_info=True)
-
-        finally:
-            for _task in _tasks:
-                if _task.done():
-                    continue
-                _task.cancel()
-                try:
-                    await _task
-                except asyncio.CancelledError:
-                    pass
-
-    async def _stop(self):
-        # close the connections
-        if not self.udp_writer or not self.udp_reader:
-            raise ValueError("No UdpWriter or UdpReader")
-
-        if not self.udp_writer.protocol.transport:
-            logger.log(logging.WARNING, "Couldnt stop RTP due to Udp transport")
-            return
-        if self.udp_writer.protocol.transport.is_closing():
-            logger.log(
-                logging.WARNING, "Couldnt stop RTP, transport is already closing."
+            self._output_queues["amd_app"] = amd_input = queue.Queue()
+            amd_cb = [self.__callbacks.get("amd_app") or [] if self.__callbacks else []][0]
+            self.__amd_thread = threading.Thread(
+                target=self.__amd_detector.run_detector,
+                name='Amd Thread',
+                args=(
+                    amd_input,
+                    amd_cb,
+                    loop,
+                ),
             )
-            return
-        self.udp_writer.protocol.transport.close()
+            self.__all_threads.append(self.__amd_thread)
+            self.__amd_thread.start()
+
+        if DTMF_MODE is DTMFMode.INBAND:
+            self.__dtmf_thread = threading.Thread(
+                target=self._handle_inband,
+                name='Inband DTMF Thread',
+                args=(
+                    loop,
+                ),
+            )
+            self.__all_threads.append(self.__dtmf_thread)
+            self.__dtmf_thread.start()
+
+    async def _stop(self): 
         self.is_running.clear()
-        if s := self.get_audio_stream():
-            s.stream_done()
-        # put None to receiver to make sure it stopped
-        await self.udp_reader.protocol.data_q.put(None)
-        logger.log(logging.DEBUG, "Rtp Handler Succesfully stopped.")  
+        self.__rtp_socket.close()
+
+        # not wait for threads to close
+        logger.log(logging.DEBUG, "Closing all threads, TOTAL: %d", len(self.__all_threads))
+        for t in self.__all_threads:
+            await asyncio.to_thread(t.join)
+
+        logger.log(logging.DEBUG, "Rtp Handler Succesfully stopped.")
 
     async def _wait_stopped(self):
         while True:
@@ -261,14 +251,21 @@ class RTPClient:
         for cb in callbacks:
             await cb(event)
 
-    async def _handle_inband(self):
-        self._output_queues['inband_dtmf'] = dtmf_q = asyncio.Queue()
+    def _handle_inband(self, loop):
+        # check for registered callbacks
+        if not self.__callbacks:
+            logger.log(logging.DEBUG, "No callbacks passed to RtpHandler.")
+            return
+        if not (callbacks := self.__callbacks.get('dtmf_callback')):
+            return
+        self._output_queues['inband_dtmf'] = dtmf_q = queue.Queue()
         _buffer = DTMFBuffer()
+
         while True:
             if not self.is_running.is_set():
                 break
 
-            data = await dtmf_q.get() 
+            data = dtmf_q.get() 
             if data is None:
                 break
 
@@ -276,19 +273,11 @@ class RTPClient:
             _buffer.buffer = np.concatenate((_buffer.buffer, data_array))
 
             if not (len(_buffer.buffer) >= _buffer.size):
-                await asyncio.sleep(0.01)
-                continue 
+                time.sleep(0.01)
+                continue   
 
-            # check for registered callbacks
-            if not self.__callbacks:
-                logger.log(logging.DEBUG, "No callbacks passed to RtpHandler.")
-                return
-            if not (callbacks := self.__callbacks.get('dtmf_callback')):
-                return
-
-            loop = asyncio.get_event_loop()
-            loop.run_in_executor(None, dtmf_detector_worker, _buffer, callbacks, loop)
-            await asyncio.sleep(0.01)
+            dtmf_detector_worker(_buffer, callbacks, loop)
+            time.sleep(0.01)
 
     def send(self, loop: asyncio.AbstractEventLoop):
         while True:
