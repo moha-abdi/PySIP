@@ -3,6 +3,8 @@ import audioop
 from dataclasses import dataclass
 from enum import Enum, auto
 import logging
+import queue
+import threading
 import time
 import numpy as np
 
@@ -49,7 +51,7 @@ class AnswringMachineDetector:
             self.settings.minimum_word_length,
             self.settings.between_words_silence,
         )
-        self.amd_started = asyncio.Event()
+        self.amd_started = threading.Event()
         self.DEFAULT_SAMPLES_PER_MS = 8000 / 1000
         self.amd_start_time = time.monotonic_ns() / 1e6
         self.amd_status = AmdStatus.NOTSURE
@@ -66,11 +68,11 @@ class AnswringMachineDetector:
         self.in_initial_silence = True
         self.in_greeting = False
 
-    async def run_detector(self, input_q: asyncio.Queue, _callbacks):
-        await self.amd_started.wait()
+    def run_detector(self, input_q: queue.Queue, _callbacks, loop):
+        self.amd_started.wait()
         self.amd_start_time = time.monotonic_ns() / 1e6
         logger.log(logging.DEBUG, "AMD app started")
-        while True:
+        while True: 
             try:
                 start_time = time.monotonic_ns() / 1e6
                 data = input_q.get(block=True, timeout=self.max_wait_time_for_frame * 2)
@@ -114,12 +116,7 @@ class AnswringMachineDetector:
                     break
 
                 # feed the frames to the silence detector
-                loop = asyncio.get_event_loop()
-                self.dspsilence = await loop.run_in_executor(
-                      None,
-                      self.silence_detector.detect_silence,
-                      data_array
-                )
+                self.dspsilence = self.silence_detector.detect_silence(data_array)
 
                 if self.dspsilence > 0:
                     self.silence_duration = self.dspsilence
@@ -245,17 +242,17 @@ class AnswringMachineDetector:
                         self.in_initial_silence = False
                         self.in_greeting = True 
 
-            except asyncio.TimeoutError:
+            except queue.Empty:
                 # if It took too long to get a frame back. Giving up.
                 logger.log(logging.WARNING, "Couldnt read the frame from the input queue")
                 self.amd_status = AmdStatus.NOTSURE
                 break
 
             finally:
-                await asyncio.sleep(0)
                 pass
 
         logger.log(logging.INFO, f"Amd Stopped. REASON: {self.amd_status}")
         # Notify the callbacks
-        await asyncio.gather(*[_cb(self.amd_status) for _cb in _callbacks])
+        for _cb in _callbacks:
+            asyncio.run_coroutine_threadsafe(_cb(self.amd_status), loop)
  
