@@ -120,6 +120,36 @@ class SipClient:
 
             await asyncio.sleep(0.1)
 
+    async def check_connection_type(self):
+        self.my_public_ip = await asyncio.to_thread(self.sip_core.get_public_ip)
+        self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
+
+        connection_types = [ConnectionType.UDP, ConnectionType.TCP,
+                            ConnectionType.TLS, ConnectionType.TLSv1]
+        found_connections = [ConnectionType.UDP]
+        found_connections.clear()
+
+        for con in connection_types:
+            self.sip_core.is_running.clear()
+            self.sip_core.connection_type = con
+            self.connection_type = con
+            self.sip_core.port = 5061 if con in [ConnectionType.TLS, ConnectionType.TLSv1] else 5060
+            try:
+                await self.sip_core.connect()
+            except Exception:
+                continue
+            await self.register()
+            
+            reader = self.sip_core.udp_reader or self.sip_core.reader
+            if not reader:
+                return found_connections
+            try:
+                _ = await asyncio.wait_for(reader.read(), 1)
+                found_connections.append(con)
+            except asyncio.TimeoutError:
+                continue
+        return found_connections
+
     def build_register_message(self, auth=False, received_message=None, unregister=False):
         # Generate unique identifiers for the message
         branch_id = str(uuid.uuid4()).upper()
