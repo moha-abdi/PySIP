@@ -1,5 +1,4 @@
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
 import logging
@@ -9,17 +8,14 @@ import socket
 from struct import unpack, unpack_from
 import time
 import threading
-import uuid
-import wave
 import numpy as np
 from typing import Callable, Dict, List, Optional, Union
-from PySIP.amd.amd import AnswringMachineDetector
 
-from PySIP.exceptions import AudioStreamError, NoSupportedCodecsFound
-from PySIP.jitter_buffer import JitterBuffer
-from PySIP.sip_core import DTMFMode
+from .amd.amd import AnswringMachineDetector
+from .exceptions import NoSupportedCodecsFound
+from .jitter_buffer import JitterBuffer
+from .sip_core import DTMFMode
 from .audio_stream import AudioStream
-from .udp_handler import open_udp_connection
 from .utils.logger import logger
 from .utils.inband_dtmf import dtmf_decode
 from .codecs import get_encoder, get_decoder, CODECS
@@ -31,7 +27,7 @@ RTP_HEADER_LENGTH = 12
 RTP_PORT_RANGE = range(10_000, 20_000)
 SEND_SILENCE = True # send silence frames when no stream
 USE_AMD_APP = True
-DTMF_MODE = DTMFMode.RFC_2833
+DTMF_MODE = DTMFMode.INBAND
 
 
 def decoder_worker(input_data, output_qs, loop):
@@ -64,14 +60,11 @@ class DTMFBuffer:
 
 
 def dtmf_detector_worker(input_buffer, _callbacks, loop):
-    with ProcessPoolExecutor() as executor:
-        future = executor.submit(dtmf_decode, input_buffer.buffer, input_buffer.rate)
-        dtmf_codes = future.result()
     dtmf_codes = dtmf_decode(input_buffer.buffer, input_buffer.rate)
 
     for cb in _callbacks:
         for code in dtmf_codes:
-            # asyncio.run_coroutine_threadsafe(cb(code), loop)
+            asyncio.run_coroutine_threadsafe(cb(code), loop)
             pass
     # finally reset buffer
     for code in dtmf_codes:
@@ -137,6 +130,7 @@ class RTPClient:
         self.__rtp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.__rtp_socket.bind((self.src_ip, self.src_port))
         self.__rtp_socket.setblocking(False)
+        self.__rtp_socket_lock = threading.Lock()
 
         # Start send thread 
         loop = asyncio.get_event_loop()
@@ -149,6 +143,8 @@ class RTPClient:
         )
         self.__all_threads.append(self.__send_thread)
         self.__send_thread.start()
+        __send_thread_id = self.__send_thread.ident
+        self.__send_thread.setName(f"Send Audio Thread - ({__send_thread_id})")
 
         # Start recv thread
         self.__recv_thread = threading.Thread(
@@ -160,7 +156,8 @@ class RTPClient:
         )
         self.__all_threads.append(self.__recv_thread)
         self.__recv_thread.start()
-
+        __recv_thread_id = self.__recv_thread.ident
+        self.__recv_thread.setName(f"Receive Audio Thread - ({__recv_thread_id})")
 
         self.__amd_detector = None
         if USE_AMD_APP: 
@@ -179,6 +176,8 @@ class RTPClient:
             )
             self.__all_threads.append(self.__amd_thread)
             self.__amd_thread.start()
+            __amd_thread_id = self.__amd_thread.ident
+            self.__amd_thread.setName(f"AMD Thread - ({__amd_thread_id})")
 
         if DTMF_MODE is DTMFMode.INBAND:
             self.__dtmf_thread = threading.Thread(
@@ -190,17 +189,30 @@ class RTPClient:
             )
             self.__all_threads.append(self.__dtmf_thread)
             self.__dtmf_thread.start()
+            __dtmf_thread_id = self.__dtmf_thread.ident
+            self.__dtmf_thread.setName(f"Inband DTMF Thread - ({__dtmf_thread_id})")
 
     async def _stop(self): 
         self.is_running.clear()
-        self.__rtp_socket.close()
+        self.__rtp_socket.close() 
 
-        # not wait for threads to close
+        logger.log(logging.DEBUG, "Rtp Handler Succesfully stopped.")
+        if previos_stream := self.get_audio_stream():
+            previos_stream.stream_done()
+            logger.log(logging.DEBUG, "Stream ID: %s Set to Done.", previos_stream.stream_id)
+
+        # Now put None in to the q to tell stream ended
+        for output_q in self._output_queues.values():
+            if isinstance(output_q, asyncio.Queue):
+                await output_q.put(None)
+
+            else:
+                await asyncio.to_thread(output_q.put, None)
+
+        # finally wait for threads to close
         logger.log(logging.DEBUG, "Closing all threads, TOTAL: %d", len(self.__all_threads))
         for t in self.__all_threads:
             await asyncio.to_thread(t.join)
-
-        logger.log(logging.DEBUG, "Rtp Handler Succesfully stopped.")
 
     async def _wait_stopped(self):
         while True:
@@ -287,9 +299,6 @@ class RTPClient:
 
             audio_stream = self.get_audio_stream()
             if not self.is_running.is_set():
-                if audio_stream:
-                    logger.log(logging.INFO, "Stream ID: %s Set to Done.", audio_stream.stream_id)
-                    loop.call_soon_threadsafe(audio_stream.stream_done)
                 break
 
             if not audio_stream and not SEND_SILENCE:
@@ -307,15 +316,19 @@ class RTPClient:
 
             # if all frames are sent then continue
             if not payload:
-                time.sleep(0.02)
                 if audio_stream is None:
+                    time.sleep(0.02)
                     continue
                 logger.log(
                     logging.DEBUG,
                     f"Sent all frames from source with id: {audio_stream.stream_id}",
                 )
-                loop.call_soon_threadsafe(audio_stream.stream_done)
-                continue
+                try:
+                    loop.call_soon_threadsafe(audio_stream.stream_done)
+                    time.sleep(0.02)
+                    continue
+                except RuntimeError:
+                    break
             
             encoded_payload = self.__encoder.encode(payload)
             packet = RtpPacket(
@@ -376,8 +389,10 @@ class RTPClient:
                     for output_q in self._output_queues.values():
                         if isinstance(output_q, asyncio.Queue):
                             # asyncio.run_coroutine_threadsafe(output_q.put(decoded_frame), loop)
-                            loop.call_soon_threadsafe(output_q.put_nowait, decoded_frame)
-                            pass
+                            try:
+                                loop.call_soon_threadsafe(output_q.put_nowait, decoded_frame)
+                            except RuntimeError:
+                                break
                         elif isinstance(output_q, queue.Queue):
                             output_q.put(decoded_frame)
 
@@ -387,14 +402,7 @@ class RTPClient:
                 time.sleep(0.01)
             except OSError:
                 time.sleep(0.01)
-                logger.log(logging.ERROR, "An error occured while receiving data", exc_info=True)
-
-        # finally put None in to the q to tell stream ended
-        for output_q in self._output_queues.values():
-            if isinstance(output_q, asyncio.Queue):
-                asyncio.run_coroutine_threadsafe(output_q.put(None), loop)
-            elif isinstance(output_q, queue.Queue):
-                output_q.put(None)
+                pass
 
         logger.log(logging.DEBUG, "Receiver socket successfully closed") 
 
