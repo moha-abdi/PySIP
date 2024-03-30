@@ -1,5 +1,6 @@
 import logging
 from logging.handlers import RotatingFileHandler
+from logging.handlers import RotatingFileHandler, QueueHandler, QueueListener
 
 def setup_logger():
     logger = logging.getLogger(__name__)
@@ -12,6 +13,7 @@ def setup_logger():
 
     # file handler
     fh = RotatingFileHandler('PySIP.log')
+    fh = RotatingFileHandler('PySIP.log', maxBytes=1000000, backupCount=5)
     fh.setLevel(logging.DEBUG)
     logger.addHandler(fh)
 
