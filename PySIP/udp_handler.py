@@ -12,10 +12,10 @@ class UdpHandler(asyncio.DatagramProtocol):
 
     def connection_made(self, transport) -> None:
         self.transport = transport
-        logger.log(logging.INFO, "Successful UDP connection has been made.")
+        logger.log(logging.DEBUG, "Successful UDP connection has been made.")
 
     def connection_lost(self, exc: Exception | None) -> None:
-        logger.log(logging.INFO, "UDP Connection has been lost")
+        logger.log(logging.DEBUG, "UDP Connection has been lost")
         if self.transport:
             self.transport.close()
 
@@ -47,7 +47,7 @@ class UdpWriter:
     def __init__(self, protocol: UdpHandler) -> None:
         self.protocol = protocol
 
-    async def write(self, data: bytes):
+    def write(self, data: bytes):
         self.protocol.send_message(data) 
 
     def get_extra_info(self, name, default=None):

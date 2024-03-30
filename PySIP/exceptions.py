@@ -1,4 +1,3 @@
-
 class SIPTransferException(Exception):
     def __init__(self, code, description):
         super().__init__(f"{code}: {description}")

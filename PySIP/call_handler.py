@@ -17,7 +17,7 @@ class CallHandler:
         self.call = call
         self.audio_queue: asyncio.Queue = asyncio.Queue()
         self.previous_stream: Optional[AudioStream] = None
-        self._voice = "en-GB-SoniaNeural"
+        self._voice = "en-US-AriaNeural"
 
     async def say(self, text: str):
         try:
@@ -48,7 +48,7 @@ class CallHandler:
                 for _t in pending:
                     _t.cancel()
                 logger.log(
-                    logging.WARNING,
+                    logging.DEBUG,
                     "Application stopped before audio processing completed.",
                 )
                 raise RuntimeError("App is no longer running")
@@ -57,7 +57,7 @@ class CallHandler:
                 raise RuntimeError("Unable to generate audio due to unknow error")
 
         except Exception as e:
-            logger.log(logging.ERROR, "Error in say: %s", e)
+            logger.log(logging.ERROR, str(e))
             raise e
 
     async def play(self, file_name: str, format: str = "wav"):
@@ -245,10 +245,8 @@ class CallHandler:
     async def send_handler(self):
         try:
             logger.log(logging.INFO, "CallHandler has been initialized..")
-            empty_queue_count = 0  # Counter for consecutive empty queue checks
 
             while True:
-                await asyncio.sleep(0.1)
                 if not self.call.sip_core.is_running.is_set():
                     break  # Exit the loop if the call is not running
 
@@ -256,17 +254,17 @@ class CallHandler:
                     break
 
                 if self.call.call_state is not CallState.ANSWERED:
+                    await asyncio.sleep(0.1)
                     continue
 
                 if not self.call._rtp_session:
+                    await asyncio.sleep(0.1)
                     continue
 
                 try:
                     event_type, result = await asyncio.wait_for(
                         self.audio_queue.get(), timeout=1.0
                     )
-                    # _print_debug_info(f"Q is got, type {event_type}")
-                    empty_queue_count = 0  # Reset the counter if an item is retrieved
 
                     if event_type == "audio":
                         if self.previous_stream:
@@ -317,16 +315,13 @@ class CallHandler:
                             result.set_exception(asyncio.TimeoutError)
 
                 except asyncio.TimeoutError:
-                    empty_queue_count += 1
-                    if empty_queue_count >= 10:
-                        logger.log(
-                            logging.WARNING,
-                            "Queue has been empty for a while. Exiting the loop.",
-                        )
-                        break
+                    pass
 
                 except asyncio.CancelledError:
                     break
+
+                finally:
+                    await asyncio.sleep(0.1)
 
             while not self.audio_queue.empty():
                 event_type, result = await self.audio_queue.get()
@@ -336,7 +331,7 @@ class CallHandler:
             if self.previous_stream:
                 self.previous_stream.stream_done()
                 
-            logger.log(logging.INFO, "The call handler has been stopped")
+            logger.log(logging.DEBUG, "The call handler has been stopped")
         except asyncio.CancelledError:
             logger.log(logging.DEBUG, "The send handler task has been cancelled")
             pass

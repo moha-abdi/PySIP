@@ -1,11 +1,11 @@
 import asyncio
 import logging
+from typing import List
 import uuid
 import random
-import traceback
 
 from .sip_core import SipCore, SipMessage, Counter
-from .filters import SIPCompatibleMethods, SIPStatus, ConnectionType, SipFilter
+from .filters import SIPCompatibleMethods, SIPStatus, ConnectionType
 from .utils.logger import logger
 from .exceptions import NoPasswordFound
 
@@ -19,10 +19,14 @@ class SipClient:
 
     def __init__(
         self, username, server, connection_type: str,
-        password: str):
+            password: str, register_duration = 600):
         self.username = username
-        self.server = server.split(":")[0]
-        self.port = server.split(":")[1]
+
+        try:
+            self.server = server.split(":")[0]
+            self.port = server.split(":")[1]
+        except IndexError:
+            self.port = 5060
 
         if password:
             self.password = password
@@ -32,13 +36,14 @@ class SipClient:
         self.CTS = 'TLS' if 'TLS' in connection_type else connection_type
         self.connection_type = ConnectionType(connection_type)
         self.reader, self.writer = None, None
-        self.pysip_tasks = []
+        self.pysip_tasks: List[asyncio.Task] = []
         self.sip_core = SipCore(self.username, server, connection_type, password)
         self.call_id = self.sip_core.gen_call_id()
         self.sip_core.on_message_callbacks.append(self.message_handler)
         self.register_counter = Counter(random.randint(1, 2000))
         self.register_tags = {"local_tag": "", "remote_tag": "", "type": "", "cseq": 0}
         self.unregistered = asyncio.Event()
+        self.register_duration = register_duration
         self.my_public_ip = None
         self.my_private_ip = None
 
@@ -49,7 +54,7 @@ class SipClient:
             self.my_public_ip = await asyncio.to_thread(self.sip_core.get_public_ip)
             self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
             await self.sip_core.connect()
-            register_task = asyncio.create_task(self.periodic_register(60), name='Periodic Register')
+            register_task = asyncio.create_task(self.periodic_register(self.register_duration), name='Periodic Register')
             receive_task = asyncio.create_task(self.sip_core.receive(), name='Receive Messages Task')
 
             try:
@@ -276,11 +281,11 @@ class SipClient:
         if msg.status == SIPStatus(401) and msg.method == "REGISTER":
             # This is the case when we have to send a retegister
             await self.reregister(True, msg)
-            logger.log(logging.INFO, "Register message has been sent to the server")
+            logger.log(logging.DEBUG, "Register message has been sent to the server")
 
         elif msg.status == SIPStatus(200) and msg.method == "REGISTER":
             # This is when we receive the response for the register
-            logger.log(logging.INFO, "Successfully REGISTERED")
+            logger.log(logging.DEBUG, "Successfully REGISTERED")
 
             # In case the response is of Un-register we set this
             if self.register_tags['type'] == "UNREGISTER":

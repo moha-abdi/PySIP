@@ -83,7 +83,7 @@ class AnswringMachineDetector:
                 ms = int((2 * self.max_wait_time_for_frame) - res)
                 # if we fail to read in a frame it means call hanged up
                 if data is None:
-                    logger.log(logging.INFO, "Amd Stopped. REASON: Call Hanged Up")
+                    logger.log(logging.DEBUG, "Amd Stopped. REASON: Call Hanged Up")
                     self.amd_status = AmdStatus.HANGUP
                     break
 
@@ -146,7 +146,7 @@ class AnswringMachineDetector:
                         and self.silence_duration >= self.settings.initial_silence
                     ):
                         logger.log(
-                            logging.INFO,
+                            logging.DEBUG,
                             f"Ansering Machine Detected, silence_duration{self.silence_duration} -- initial_silence {self.in_initial_silence}"
                         )
                         self.amd_status = AmdStatus.MACHINE
@@ -159,7 +159,7 @@ class AnswringMachineDetector:
                         and self.in_greeting
                     ):
                         logger.log(
-                            logging.INFO,
+                            logging.DEBUG,
                             f"Human Detected, after_greeting_silence {self.settings.after_greeting_silence} -- silence_duration {self.silence_duration}"
                         )
                         self.amd_status = AmdStatus.HUMAN
@@ -195,7 +195,7 @@ class AnswringMachineDetector:
 
                     if self.words_count > self.settings.maximum_number_of_words:
                         logger.log(
-                            logging.INFO,
+                            logging.DEBUG,
                             f"Answring Machine Detected -- Max num of maximum_number_of_words: {self.words_count}"
                         )
                         self.amd_status = AmdStatus.MACHINE
@@ -206,7 +206,7 @@ class AnswringMachineDetector:
                         and self.voice_duration >= self.settings.greeting
                     ):
                         logger.log(
-                            logging.INFO,
+                            logging.DEBUG,
                             "Answring Machine Detected -- voice_duration {} -- greeting: {}".format(
                                 self.voice_duration, self.settings.greeting
                             )
