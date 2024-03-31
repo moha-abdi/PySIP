@@ -69,13 +69,14 @@ class SipCall:
         self._rtp_session: Optional[RTPClient] = None
         self._call_handler = CallHandler(self)
         self._dtmf_handler = DTMFHandler()
-        self._refer_future: asyncio.Future = asyncio.Future()
+        self._refer_future: Optional[asyncio.Future] = None
         self.__recorded_audio_bytes: Optional[bytes] = None
         self.__is_call_stopped = False
         self.dialogue = SipDialogue(self.call_id, self.sip_core.generate_tag(), "")
         self.call_state = CallState.INITIALIZING
 
     async def start(self):
+        self._refer_future = asyncio.Future()
         _tasks = []
         try:
             self.my_public_ip = await asyncio.to_thread(self.sip_core.get_public_ip)
