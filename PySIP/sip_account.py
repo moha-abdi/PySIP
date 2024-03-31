@@ -80,7 +80,10 @@ class SipAccount:
             self.password,
             register_duration=self.register_duration,
         )
-        self.__client_task = asyncio.create_task(self.__sip_client.run())
+        if self.__loop:
+            self.__loop.create_task(self.__sip_client.run())
+        else:
+            self.__client_task = asyncio.create_task(self.__sip_client.run())
 
     def register_sync(self):
         if self.__loop is None:
@@ -102,7 +105,10 @@ class SipAccount:
 
     async def unregister(self):
         if self.__sip_client:
-            await self.__sip_client.stop()
+            if self.__loop:
+                await self.__loop.create_task(self.__sip_client.stop())
+            else:
+                await self.__sip_client.stop()
 
     def unregister_sync(self):
         if self.__loop is None:
