@@ -160,6 +160,7 @@ class SipCore:
         return response_hash
 
     async def connect(self):
+        self.is_running = asyncio.Event()
         try:
             if self.connection_type == ConnectionType.TCP:
                 self.is_running.set()

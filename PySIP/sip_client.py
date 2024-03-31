@@ -36,7 +36,7 @@ class SipClient:
         self.CTS = 'TLS' if 'TLS' in connection_type else connection_type
         self.connection_type = ConnectionType(connection_type)
         self.reader, self.writer = None, None
-        self.pysip_tasks: List[asyncio.Task] = []
+        self.all_tasks: List[asyncio.Task] = []
         self.sip_core = SipCore(self.username, server, connection_type, password)
         self.call_id = self.sip_core.gen_call_id()
         self.sip_core.on_message_callbacks.append(self.message_handler)
@@ -58,6 +58,7 @@ class SipClient:
             receive_task = asyncio.create_task(self.sip_core.receive(), name='Receive Messages Task')
 
             try:
+                self.all_tasks.extend([receive_task, register_task])
                 await asyncio.gather(receive_task, register_task)
             except asyncio.CancelledError:
                 if receive_task.done():
@@ -103,6 +104,7 @@ class SipClient:
 
             sleep_task = asyncio.create_task(asyncio.sleep(delay - 5))
             event_cleared_task = asyncio.create_task(self.wait_for_event_clear(self.sip_core.is_running))
+            self.all_tasks.extend([sleep_task, event_cleared_task])
 
             _, pending = await asyncio.wait(
                 [sleep_task, event_cleared_task],
