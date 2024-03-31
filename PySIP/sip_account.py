@@ -79,24 +79,24 @@ class SipAccount:
             await self.__sip_client.stop()
 
     async def make_call(self, to: str, caller_id: str = "") -> SipCall:
+    def make_call(self, to: str, caller_id: str = "") -> SipCall:
         if ongoing_calls := len(self.__calls) >= self.MAX_ONGOING_CALLS:
-            raise RuntimeError(f"Maximum allowed concurrent calls ({ongoing_calls}) reached.")
+            raise RuntimeError(
+                f"Maximum allowed concurrent calls ({ongoing_calls}) reached."
+            )
         if self.connection_type == "AUTO":
-            self.connection_type = await self._get_connection_type()
+            self.connection_type = asyncio.run(
+                self._get_connection_type()
+            )
 
         __sip_call = SipCall(
-            self.username,
-            self.password,
-            self.hostname,
-            to,
-            caller_id=caller_id
+            self.username, self.password, self.hostname, to, caller_id=caller_id
         )
         self.__calls.append(__sip_call)
         return __sip_call
 
-    def remove_call(self, _call):
+    def remove_call(self, call: SipCall):
         try:
-            self.__calls.remove(_call)
+            self.__calls.remove(call)
         except ValueError:
             pass
-
