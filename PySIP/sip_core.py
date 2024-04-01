@@ -49,6 +49,8 @@ connection_ports = {
     ConnectionType.TLSv1: 5061
 }
 
+SAVE_TLS_KEYLOG = False
+
 
 class SipCore:
     def __init__(self, username, server, connection_type: str, password: str):
@@ -179,6 +181,8 @@ class SipCore:
             elif self.connection_type == ConnectionType.TLS:
                 self.is_running.set()
                 ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+                if SAVE_TLS_KEYLOG:
+                    ssl_context.keylog_filename = "tls_keylog.log"
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server, self.port, ssl=ssl_context
                 )
@@ -187,7 +191,8 @@ class SipCore:
                 self.is_running.set()
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
                 ssl_context.set_ciphers("AES128-SHA")
-                ssl_context.keylog_filename = "tls_keylog.log"
+                if SAVE_TLS_KEYLOG:
+                    ssl_context.keylog_filename = "tls_keylog.log"
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server, self.port, ssl=ssl_context
                 )

@@ -71,7 +71,7 @@ class SipCall:
         self._dtmf_handler = DTMFHandler()
         self._refer_future: Optional[asyncio.Future] = None
         self.__recorded_audio_bytes: Optional[bytes] = None
-        self.__is_call_stopped = False
+        self._is_call_stopped = False
         self.dialogue = SipDialogue(self.call_id, self.sip_core.generate_tag(), "")
         self.call_state = CallState.INITIALIZING
 
@@ -126,7 +126,7 @@ class SipCall:
         # established but not yet confirmed, thus we send cancel.
         # 3rd scenario is if the state is confirmed meaning the call was
         # asnwered and in this scenario we send bye.
-        if self.__is_call_stopped:
+        if self._is_call_stopped:
             logger.log(
                 logging.WARNING,
                 "The call was already TERMINATED. stop call invoked more than once.",
@@ -182,7 +182,7 @@ class SipCall:
 
         # also check for any rtp session and stop it
         await self._cleanup_rtp()
-        self.__is_call_stopped = True
+        self._is_call_stopped = True
 
     async def _cleanup_rtp(self):
         if not self._rtp_session:
