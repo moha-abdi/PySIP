@@ -27,7 +27,7 @@ RTP_HEADER_LENGTH = 12
 RTP_PORT_RANGE = range(10_000, 20_000)
 SEND_SILENCE = True # send silence frames when no stream
 USE_AMD_APP = True
-DTMF_MODE = DTMFMode.INBAND
+DTMF_MODE = DTMFMode.RFC_2833
 
 
 def decoder_worker(input_data, output_qs, loop):
@@ -371,7 +371,13 @@ class RTPClient:
                 packet = RtpPacket.parse(data)
                 if packet.payload_type == CodecInfo.EVENT:
                     # handle rfc 2833 
-                    # await self._handle_rfc_2833(packet)
+                    if DTMF_MODE is DTMFMode.RFC_2833:
+                        try:
+                            asyncio.run_coroutine_threadsafe(
+                                self._handle_rfc_2833(packet), loop
+                            )
+                        except RuntimeError:
+                            break
                     time.sleep(0.01)
                     continue
 
