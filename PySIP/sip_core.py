@@ -7,7 +7,7 @@ import socket
 import ssl
 import uuid
 import hashlib
-from typing import List, Optional
+from typing import Callable, List, Optional
 import requests
 
 from .utils.logger import logger
@@ -15,16 +15,11 @@ from .filters import (
     SipFilter,
     SIPMessageType,
     SIPCompatibleMethods,
+    SIPCompatibleVersions,
     SIPStatus,
     ConnectionType,
 )
 from .udp_handler import open_udp_connection
-from .filters import (
-    SIPCompatibleMethods,
-    SIPCompatibleVersions,
-    SIPMessageType,
-    SIPStatus,
-)
 from .exceptions import NoPasswordFound
 from .codecs.codec_info import CodecInfo
 from enum import Enum, auto
@@ -47,6 +42,16 @@ class DTMFMode(Enum):
     INBAND = auto()
 
 
+connection_ports = {
+    ConnectionType.UDP: 5060,
+    ConnectionType.TCP: 5060,
+    ConnectionType.TLS: 5061,
+    ConnectionType.TLSv1: 5061
+}
+
+SAVE_TLS_KEYLOG = False
+
+
 class SipCore:
     def __init__(self, username, server, connection_type: str, password: str):
         self.username = username
@@ -60,8 +65,8 @@ class SipCore:
                 "No password was provided please provide password to use for Digest auth."
             )
 
-        self.on_message_callbacks = []
-        self.tags = []
+        self.on_message_callbacks: List[Callable] = []
+        self.tags: List[str] = []
         self.is_running = asyncio.Event()
         self.reader, self.writer = None, None
         self.udp_reader, self.udp_writer = None, None
@@ -157,6 +162,7 @@ class SipCore:
         return response_hash
 
     async def connect(self):
+        self.is_running = asyncio.Event()
         try:
             if self.connection_type == ConnectionType.TCP:
                 self.is_running.set()
@@ -175,6 +181,8 @@ class SipCore:
             elif self.connection_type == ConnectionType.TLS:
                 self.is_running.set()
                 ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+                if SAVE_TLS_KEYLOG:
+                    ssl_context.keylog_filename = "tls_keylog.log"
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server, self.port, ssl=ssl_context
                 )
@@ -183,20 +191,24 @@ class SipCore:
                 self.is_running.set()
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
                 ssl_context.set_ciphers("AES128-SHA")
-                ssl_context.keylog_filename = "tls_keylog.log"
+                if SAVE_TLS_KEYLOG:
+                    ssl_context.keylog_filename = "tls_keylog.log"
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server, self.port, ssl=ssl_context
                 )
 
         except (OSError, ssl.SSLError) as e:
-            logger.log(logging.ERROR, f"Error during connection: {e}", exc_info=True)
+            logger.log(logging.DEBUG, f"Error during connection: {e}")
+            raise
             # Handle the error as needed
         except Exception as e:
-            logger.log(logging.ERROR, f"Unexpected error: {e}", exc_info=True)
+            logger.log(logging.DEBUG, f"Unexpected Error: {e}")
+            raise
         except asyncio.CancelledError:
             logger.log(logging.DEBUG, "The sip_core.connect task has been cancelled.")
+            raise
 
-    def on_message(self, filters: SipFilter = None):
+    def on_message(self, filters: Optional[SipFilter] = None):
         def decorator(func):
             @wraps(func)
             async def wrapper(msg):
@@ -237,6 +249,10 @@ class SipCore:
     async def send_to_callbacks(self, data):
         for callback in self.on_message_callbacks:
             data_formatted = SipMessage(data)
+            # with ThreadPoolExecutor() as executor:
+            #     loop = asyncio.get_event_loop()
+            #     await loop.run_in_executor(executor, data_formatted.parse)
+
             data_formatted.parse()
 
             await callback(data_formatted)
@@ -247,7 +263,7 @@ class SipCore:
                 logger.log(logging.CRITICAL, "There is no UdpWriter, cant write!")
                 return
             await self.send_to_callbacks(msg)
-            await self.udp_writer.write(msg.encode())
+            self.udp_writer.write(msg.encode())
 
         else:
             if not self.writer:
@@ -339,7 +355,7 @@ class SipCore:
         except Exception as e:
             logger.log(logging.ERROR, f"Error closing connections: {e}", exc_info=True)
 
-        logger.log(logging.INFO, "Successfully closed connections")
+        logger.log(logging.DEBUG, "Successfully closed connections")
 
 
 class Checksum:

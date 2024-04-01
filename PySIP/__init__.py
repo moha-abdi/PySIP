@@ -17,11 +17,12 @@
 # For more information and usage examples, visit the
 # PySIP GitHub repository: https://github.com/moha-abdi/pysip
 import logging
-from .utils.logger import logger, console_handler
+from .utils.logger import logger, console_handler, file_handler
 
 __version__ = "1.6.0"
 __license__ = "MIT License"
 __copyright__ = "Copyright (C) 2023-present Moha"
 
 
-console_handler.setLevel(logging.DEBUG) 
+console_handler.setLevel(logging.INFO) 
+file_handler.setLevel(logging.DEBUG)

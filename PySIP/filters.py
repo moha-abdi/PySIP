@@ -1,5 +1,5 @@
 from enum import IntEnum, Enum
-from typing import Any, Union
+from typing import Any
 
 __all__ = [
     'SIPCompatibleMethods',
@@ -31,6 +31,9 @@ class ConnectionType(Enum):
     UDP = 'UDP'
     TLS = 'TLS'
     TLSv1 = 'TLSv1'
+
+    def __str__(self) -> str:
+        return self._value_
 
 
 class CallState(Enum):

@@ -17,7 +17,7 @@ class CallHandler:
         self.call = call
         self.audio_queue: asyncio.Queue = asyncio.Queue()
         self.previous_stream: Optional[AudioStream] = None
-        self._voice = "en-GB-SoniaNeural"
+        self._voice = "en-US-AriaNeural"
 
     async def say(self, text: str):
         try:
@@ -39,8 +39,9 @@ class CallHandler:
                 self.audio_stream = AudioStream(self.audio_bytes)
                 await asyncio.to_thread(self.audio_stream.recv)
                 await self.audio_queue.put(("audio", self.audio_stream))
-                if not self.call.sip_core.is_running.is_set():
+                if self.call._is_call_stopped:
                     self.audio_stream.stream_done()
+
                 return self.audio_stream
 
             # If the application stops before audio processing completes
@@ -48,16 +49,16 @@ class CallHandler:
                 for _t in pending:
                     _t.cancel()
                 logger.log(
-                    logging.WARNING,
-                    "Application stopped before audio processing completed.",
+                    logging.DEBUG,
+                    "Call stopped before audio processing completed.",
                 )
-                raise RuntimeError("App is no longer running")
+                raise RuntimeError("Call is no longer ongoing")
 
             else:
                 raise RuntimeError("Unable to generate audio due to unknow error")
 
         except Exception as e:
-            logger.log(logging.ERROR, "Error in say: %s", e)
+            logger.log(logging.ERROR, str(e))
             raise e
 
     async def play(self, file_name: str, format: str = "wav"):
@@ -85,7 +86,7 @@ class CallHandler:
         """This method gathers a dtmf tone with the specified
         length and then returns when done""" 
         if not self.call.sip_core.is_running.is_set():
-            raise RuntimeError("App is no longer running")
+            raise RuntimeError("Call is no longer ongoing")
 
         dtmf_future: asyncio.Future = asyncio.Future()
         dtmf_future.__setattr__("length", length)
@@ -96,7 +97,7 @@ class CallHandler:
 
         try:
             result = await dtmf_future
-            return int(result)
+            return str(result)
         except asyncio.CancelledError:
             if not dtmf_future.done():
                 dtmf_future.cancel()
@@ -108,6 +109,12 @@ class CallHandler:
             _task = asyncio.current_task()
             if (_task is not None) and _task.cancelling() > 0:
                 raise
+
+        except RuntimeError as e:
+            raise e
+
+        except asyncio.TimeoutError:
+            return str(-1)
 
     async def gather_and_say(
         self,
@@ -245,10 +252,8 @@ class CallHandler:
     async def send_handler(self):
         try:
             logger.log(logging.INFO, "CallHandler has been initialized..")
-            empty_queue_count = 0  # Counter for consecutive empty queue checks
 
             while True:
-                await asyncio.sleep(0.1)
                 if not self.call.sip_core.is_running.is_set():
                     break  # Exit the loop if the call is not running
 
@@ -256,17 +261,17 @@ class CallHandler:
                     break
 
                 if self.call.call_state is not CallState.ANSWERED:
+                    await asyncio.sleep(0.1)
                     continue
 
                 if not self.call._rtp_session:
+                    await asyncio.sleep(0.1)
                     continue
 
                 try:
                     event_type, result = await asyncio.wait_for(
                         self.audio_queue.get(), timeout=1.0
                     )
-                    # _print_debug_info(f"Q is got, type {event_type}")
-                    empty_queue_count = 0  # Reset the counter if an item is retrieved
 
                     if event_type == "audio":
                         if self.previous_stream:
@@ -300,15 +305,28 @@ class CallHandler:
                                 )
                                 awaitable = self.previous_stream.stream_done_future
 
-                            dtmf_result = await wait_for(
+                            dtmf_task = asyncio.create_task(wait_for(
                                 self.call._dtmf_handler.get_dtmf(length, finish_on_key),
                                 timeout,
                                 awaitable,
+                            ))
+                            app_stopped_task = asyncio.create_task(self.call._wait_stopped())
+                            done, pending = await asyncio.wait(
+                                [dtmf_task, app_stopped_task], return_when=asyncio.FIRST_COMPLETED
                             )
-                            self.previous_stream = stream
-                            if stream:
-                                await self.call._rtp_session.set_audio_stream(None)
-                            result.set_result(dtmf_result)
+                            if dtmf_task in done:
+                                app_stopped_task.cancel()
+                                dtmf_result = await dtmf_task
+                                self.previous_stream = stream
+                                if stream:
+                                    await self.call._rtp_session.set_audio_stream(None)
+                                result.set_result(dtmf_result)
+
+                            elif app_stopped_task in done:
+                                dtmf_task.cancel()
+                                result.set_exception(
+                                    RuntimeError("App stopped before DTMF result.")
+                                )
 
                         except asyncio.TimeoutError:
                             self.previous_stream = stream
@@ -317,16 +335,13 @@ class CallHandler:
                             result.set_exception(asyncio.TimeoutError)
 
                 except asyncio.TimeoutError:
-                    empty_queue_count += 1
-                    if empty_queue_count >= 10:
-                        logger.log(
-                            logging.WARNING,
-                            "Queue has been empty for a while. Exiting the loop.",
-                        )
-                        break
+                    pass
 
                 except asyncio.CancelledError:
                     break
+
+                finally:
+                    await asyncio.sleep(0.1)
 
             while not self.audio_queue.empty():
                 event_type, result = await self.audio_queue.get()
@@ -336,7 +351,7 @@ class CallHandler:
             if self.previous_stream:
                 self.previous_stream.stream_done()
                 
-            logger.log(logging.INFO, "The call handler has been stopped")
+            logger.log(logging.DEBUG, "The call handler has been stopped")
         except asyncio.CancelledError:
             logger.log(logging.DEBUG, "The send handler task has been cancelled")
             pass
