@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import logging
 from typing import List, Literal, Optional
 
@@ -20,8 +21,7 @@ class SipAccount:
         *,
         connection_type: Literal["AUTO", "TCP", "UDP", "TLS", "TLSv1"] = "AUTO",
         register_duration=600,
-        max_ongoing_calls=10,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+        max_ongoing_calls=10
     ) -> None:
         self.username = username
         self.password = password
@@ -32,7 +32,7 @@ class SipAccount:
         self.__client_task = None
         self.__sip_client = None
         self.__calls: List[SipCall] = []
-        self.__loop = loop
+        self.__setup_connection_type()
 
     def __parse_hostname(self, hostname: str, connection_type):
         try:
@@ -48,6 +48,11 @@ class SipAccount:
             else:
                 port = None
         return hostname, port
+
+    def __setup_connection_type(self):
+        with ThreadPoolExecutor() as exe:
+            result = exe.submit(asyncio.run, self._get_connection_type())
+            self.connection_type = result.result()
 
     async def _get_connection_type(self):
         logger.log(logging.INFO, "Detecting connection type (UDP/TCP/TLS). This might take some time...")
@@ -80,65 +85,11 @@ class SipAccount:
             self.password,
             register_duration=self.register_duration,
         )
-        if self.__loop:
-            self.__loop.create_task(self.__sip_client.run())
-        else:
-            self.__client_task = asyncio.create_task(self.__sip_client.run())
-
-    def register_sync(self):
-        if self.__loop is None:
-            raise RuntimeError("There is no event loop provided")
-
-        if self.connection_type == "AUTO":
-            self.connection_type = self.__loop.run_until_complete(
-                self._get_connection_type()
-            )
-
-        self.__sip_client = SipClient(
-            self.username,
-            self.hostname,
-            str(self.connection_type),
-            self.password,
-            register_duration=self.register_duration,
-        )
-        self.__client_task = self.__loop.create_task(self.__sip_client.run())
+        self.__client_task = asyncio.create_task(self.__sip_client.run()) 
 
     async def unregister(self):
         if self.__sip_client:
-            if self.__loop:
-                await self.__loop.create_task(self.__sip_client.stop())
-            else:
-                await self.__sip_client.stop()
-
-    def unregister_sync(self):
-        if self.__loop is None:
-            raise RuntimeError("There is no event loop provided")
-
-        if self.__sip_client:
-            self.__loop.run_until_complete(self.__sip_client.stop())
-
-        if self.__client_task:
-            self.__client_task.cancel()
-
-            try:
-                self.__loop.run_until_complete(self.__client_task)
-            except asyncio.CancelledError:
-                pass
-
-        # Cancel all remaining tasks in the event loop
-        pending_tasks = [
-            task
-            for task in (self.__sip_client.all_tasks if self.__sip_client else [])
-            if not task.done()
-        ]
-
-        for task in pending_tasks:
-            task.cancel()
-
-        # Wait for all tasks to complete or be cancelled :)
-        self.__loop.run_until_complete(
-            asyncio.gather(*pending_tasks, return_exceptions=True)
-        ) 
+            await self.__sip_client.stop() 
 
     def make_call(self, to: str, caller_id: str = "") -> SipCall:
         if ongoing_calls := len(self.__calls) >= self.MAX_ONGOING_CALLS:
@@ -146,9 +97,7 @@ class SipAccount:
                 f"Maximum allowed concurrent calls ({ongoing_calls}) reached."
             )
         if self.connection_type == "AUTO":
-            self.connection_type = asyncio.run(
-                self._get_connection_type()
-            )
+            raise RuntimeError("Connection type not found")
 
         __sip_call = SipCall(
             self.username, self.password, self.hostname, to, caller_id=caller_id
