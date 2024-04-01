@@ -39,8 +39,9 @@ class CallHandler:
                 self.audio_stream = AudioStream(self.audio_bytes)
                 await asyncio.to_thread(self.audio_stream.recv)
                 await self.audio_queue.put(("audio", self.audio_stream))
-                if not self.call.sip_core.is_running.is_set():
+                if self.call._is_call_stopped:
                     self.audio_stream.stream_done()
+
                 return self.audio_stream
 
             # If the application stops before audio processing completes
@@ -49,9 +50,9 @@ class CallHandler:
                     _t.cancel()
                 logger.log(
                     logging.DEBUG,
-                    "Application stopped before audio processing completed.",
+                    "Call stopped before audio processing completed.",
                 )
-                raise RuntimeError("App is no longer running")
+                raise RuntimeError("Call is no longer ongoing")
 
             else:
                 raise RuntimeError("Unable to generate audio due to unknow error")
@@ -85,7 +86,7 @@ class CallHandler:
         """This method gathers a dtmf tone with the specified
         length and then returns when done""" 
         if not self.call.sip_core.is_running.is_set():
-            raise RuntimeError("App is no longer running")
+            raise RuntimeError("Call is no longer ongoing")
 
         dtmf_future: asyncio.Future = asyncio.Future()
         dtmf_future.__setattr__("length", length)
@@ -96,7 +97,7 @@ class CallHandler:
 
         try:
             result = await dtmf_future
-            return int(result)
+            return str(result)
         except asyncio.CancelledError:
             if not dtmf_future.done():
                 dtmf_future.cancel()
@@ -108,6 +109,12 @@ class CallHandler:
             _task = asyncio.current_task()
             if (_task is not None) and _task.cancelling() > 0:
                 raise
+
+        except RuntimeError as e:
+            raise e
+
+        except asyncio.TimeoutError:
+            return str(-1)
 
     async def gather_and_say(
         self,
@@ -298,15 +305,28 @@ class CallHandler:
                                 )
                                 awaitable = self.previous_stream.stream_done_future
 
-                            dtmf_result = await wait_for(
+                            dtmf_task = asyncio.create_task(wait_for(
                                 self.call._dtmf_handler.get_dtmf(length, finish_on_key),
                                 timeout,
                                 awaitable,
+                            ))
+                            app_stopped_task = asyncio.create_task(self.call._wait_stopped())
+                            done, pending = await asyncio.wait(
+                                [dtmf_task, app_stopped_task], return_when=asyncio.FIRST_COMPLETED
                             )
-                            self.previous_stream = stream
-                            if stream:
-                                await self.call._rtp_session.set_audio_stream(None)
-                            result.set_result(dtmf_result)
+                            if dtmf_task in done:
+                                app_stopped_task.cancel()
+                                dtmf_result = await dtmf_task
+                                self.previous_stream = stream
+                                if stream:
+                                    await self.call._rtp_session.set_audio_stream(None)
+                                result.set_result(dtmf_result)
+
+                            elif app_stopped_task in done:
+                                dtmf_task.cancel()
+                                result.set_exception(
+                                    RuntimeError("App stopped before DTMF result.")
+                                )
 
                         except asyncio.TimeoutError:
                             self.previous_stream = stream
