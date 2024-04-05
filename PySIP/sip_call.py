@@ -48,6 +48,7 @@ class SipCall:
         *,
         connection_type: Literal["TCP", "UDP", "TLS", "TLSv1"] = "UDP",
         caller_id: str = "",
+        sip_core = None
     ) -> None:
         self.username = username
         self.caller_id = username if not caller_id else caller_id
@@ -57,7 +58,8 @@ class SipCall:
         self.connection_type = connection_type
         self.password = password
         self.callee = callee
-        self.sip_core = SipCore(self.username, route, connection_type, password)
+        self.__sip_core = sip_core
+        self.sip_core = sip_core if sip_core is not None else SipCore(self.username, route, connection_type, password)
         self.sip_core.on_message_callbacks.append(self.message_handler)
         self.sip_core.on_message_callbacks.append(self.error_handler)
         self._callbacks: Dict[str, List[Callable]] = {}
@@ -70,6 +72,7 @@ class SipCall:
         self._call_handler = CallHandler(self)
         self._dtmf_handler = DTMFHandler()
         self._refer_future: Optional[asyncio.Future] = None
+        self._is_call_ongoing: Optional[asyncio.Event] = None
         self.__recorded_audio_bytes: Optional[bytes] = None
         self._is_call_stopped = False
         self.dialogue = SipDialogue(self.call_id, self.sip_core.generate_tag(), "")
@@ -77,26 +80,36 @@ class SipCall:
 
     async def start(self):
         self._refer_future = asyncio.Future()
+        self._is_call_ongoing = asyncio.Event()
         _tasks = []
         try:
             self.my_public_ip = await asyncio.to_thread(self.sip_core.get_public_ip)
             self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
             self.setup_local_session()
             self.dialogue.username = self.username
-            await self.sip_core.connect()
+            if (not self.sip_core.is_running.is_set() 
+                and not self.sip_core._is_connecting.is_set()):
+                # only connect if it is not already connected
+                await self.sip_core.connect()
+
+            elif self.sip_core._is_connecting.is_set():
+                await self.sip_core.is_running.wait()
+
             # regiser the callback for when the call is ANSWERED
             self._register_callback("state_changed_cb", self.on_call_answered)
             self._register_callback("dtmf_callback", self._dtmf_handler.dtmf_callback)
-            receive_task = asyncio.create_task(
-                self.sip_core.receive(), name="Receive Messages Task"
-            )
+            if not self.sip_core.receive_task:
+                receive_task = asyncio.create_task(
+                    self.sip_core.receive(), name="Receive Messages Task"
+                )
+                _tasks.append(receive_task)
             call_task = asyncio.create_task(
                 self.invite(), name="Call Initialization Task"
             )
             call_handler_task = asyncio.create_task(
                 self.call_handler.send_handler(), name="Calld Handler Task"
             )
-            _tasks.extend([receive_task, call_task, call_handler_task])
+            _tasks.extend([call_task, call_handler_task])
             try:
                 await asyncio.gather(*_tasks, return_exceptions=False)
             except asyncio.CancelledError:
@@ -134,8 +147,9 @@ class SipCall:
             return
 
         if self.dialogue.state == DialogState.PREDIALOG:
-            self.sip_core.is_running.clear()
-            await self.sip_core.close_connections()
+            if self.__sip_core is None:
+                self.sip_core.is_running.clear()
+                await self.sip_core.close_connections()
             logger.info("The call has ben stopped")
 
         elif (self.dialogue.state == DialogState.INITIAL) or (
@@ -153,8 +167,9 @@ class SipCall:
             except asyncio.TimeoutError:
                 logger.log(logging.WARNING, "The call has been cancelled with errors")
             finally:
-                self.sip_core.is_running.clear()
-                await self.sip_core.close_connections()
+                if self.__sip_core is None:
+                    self.sip_core.is_running.clear()
+                    await self.sip_core.close_connections()
 
         elif self.dialogue.state == DialogState.CONFIRMED:
             bye_message = self.bye_generator()
@@ -167,12 +182,14 @@ class SipCall:
             except asyncio.TimeoutError:
                 logger.log(logging.WARNING, "The call has been hanged up with errors")
             finally:
-                self.sip_core.is_running.clear()
-                await self.sip_core.close_connections()
+                if self.__sip_core is None:
+                    self.sip_core.is_running.clear()
+                    await self.sip_core.close_connections()
 
         elif self.dialogue.state == DialogState.TERMINATED:
-            self.sip_core.is_running.clear()
-            await self.sip_core.close_connections() 
+            if self.__sip_core is None:
+                self.sip_core.is_running.clear()
+                await self.sip_core.close_connections() 
 
         # finally notify the callbacks
         for cb in self._get_callbacks("hanged_up_cb"):
@@ -205,7 +222,7 @@ class SipCall:
 
     async def _wait_stopped(self):
         while True:
-            if not self.sip_core.is_running.is_set():
+            if self._is_call_stopped:
                 if self.call_state is CallState.INITIALIZING:
                     await asyncio.sleep(0.2)
                     continue
