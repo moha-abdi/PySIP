@@ -19,7 +19,7 @@
 import logging
 from .utils.logger import logger, console_handler, file_handler
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 __license__ = "MIT License"
 __copyright__ = "Copyright (C) 2023-present Moha"
 
