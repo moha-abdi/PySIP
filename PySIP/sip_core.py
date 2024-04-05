@@ -68,8 +68,10 @@ class SipCore:
         self.on_message_callbacks: List[Callable] = []
         self.tags: List[str] = []
         self.is_running = asyncio.Event()
+        self._is_connecting = asyncio.Event()
         self.reader, self.writer = None, None
         self.udp_reader, self.udp_writer = None, None
+        self.receive_task: Optional[asyncio.Task] = None
 
     def get_public_ip(self) -> str | None:
         try:
@@ -163,32 +165,33 @@ class SipCore:
 
     async def connect(self):
         self.is_running = asyncio.Event()
+        self._is_connecting = asyncio.Event()
         try:
+            self._is_connecting.set()
             if self.connection_type == ConnectionType.TCP:
-                self.is_running.set()
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server,
                     self.port,
                 )
+                self.is_running.set()
 
             elif self.connection_type == ConnectionType.UDP:
-                self.is_running.set()
 
                 self.udp_reader, self.udp_writer = await open_udp_connection(
                     (self.server, self.port)
                 )
+                self.is_running.set()
 
             elif self.connection_type == ConnectionType.TLS:
-                self.is_running.set()
                 ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
                 if SAVE_TLS_KEYLOG:
                     ssl_context.keylog_filename = "tls_keylog.log"
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server, self.port, ssl=ssl_context
                 )
+                self.is_running.set()
 
             elif self.connection_type == ConnectionType.TLSv1:
-                self.is_running.set()
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
                 ssl_context.set_ciphers("AES128-SHA")
                 if SAVE_TLS_KEYLOG:
@@ -196,6 +199,7 @@ class SipCore:
                 self.reader, self.writer = await asyncio.open_connection(
                     self.server, self.port, ssl=ssl_context
                 )
+                self.is_running.set()
 
         except (OSError, ssl.SSLError) as e:
             logger.log(logging.DEBUG, f"Error during connection: {e}")
