@@ -114,7 +114,7 @@ class CallHandler:
             raise e
 
         except asyncio.TimeoutError:
-            return str(-1)
+            raise
 
     async def gather_and_say(
         self,
@@ -138,7 +138,7 @@ class CallHandler:
                     return dtmf_result
 
             except asyncio.TimeoutError:
-                text = delay_msg or "You did not any keys please try again"
+                text = delay_msg or "You did not press any keys, please try again"
                 await self.say(text)
                 continue
 
@@ -240,6 +240,11 @@ class CallHandler:
     def call_id(self):
         """Retturns the call id of the current call"""
         return self.call.call_id
+
+    @property
+    def dtmf_handler(self):
+        """Returns the dtmf handler for this call"""
+        return self.call._dtmf_handler
 
     @property
     def voice(self):
@@ -347,6 +352,11 @@ class CallHandler:
                 event_type, result = await self.audio_queue.get()
                 if event_type == "audio":
                     result.stream_done()
+
+                elif event_type == "dtmf":
+                    result.set_exception(
+                        RuntimeError("App stopped before DTMF result.")
+                    )
 
             if self.previous_stream:
                 self.previous_stream.stream_done()
