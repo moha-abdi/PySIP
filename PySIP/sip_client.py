@@ -16,17 +16,24 @@ __all__ = [
 
 
 class SipClient:
-
     def __init__(
-        self, username, server, connection_type: str,
-            password: str, register_duration = 600):
+        self, 
+        username, 
+        server, 
+        connection_type: str,
+        password: str, 
+        *,
+        register_duration = 600,
+        caller_id = "",
+        sip_core = None
+    ):
         self.username = username
-
         try:
             self.server = server.split(":")[0]
             self.port = server.split(":")[1]
         except IndexError:
             self.port = 5060
+        self.server = self.server + ":" + str(self.port)
 
         if password:
             self.password = password
@@ -37,29 +44,45 @@ class SipClient:
         self.connection_type = ConnectionType(connection_type)
         self.reader, self.writer = None, None
         self.all_tasks: List[asyncio.Task] = []
-        self.sip_core = SipCore(self.username, server, connection_type, password)
+        self.sip_core = sip_core if sip_core is not None else SipCore(self.username, self.server, connection_type, password)
         self.call_id = self.sip_core.gen_call_id()
         self.sip_core.on_message_callbacks.append(self.message_handler)
         self.register_counter = Counter(random.randint(1, 2000))
         self.register_tags = {"local_tag": "", "remote_tag": "", "type": "", "cseq": 0}
+        self.registered = asyncio.Event()
         self.unregistered = asyncio.Event()
         self.register_duration = register_duration
+        self.caller_id = caller_id if caller_id else username
         self.my_public_ip = None
         self.my_private_ip = None
 
     async def run(self):
         register_task = None
         receive_task = None
+        tasks = []
         try:
             self.my_public_ip = await asyncio.to_thread(self.sip_core.get_public_ip)
             self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
-            await self.sip_core.connect()
+
+            if (not self.sip_core.is_running.is_set()
+                    and not self.sip_core._is_connecting.is_set()):
+                # only connect if it is not already connected
+                await self.sip_core.connect()
+
+            elif self.sip_core._is_connecting.is_set():
+                await self.sip_core.is_running.wait()
+
             register_task = asyncio.create_task(self.periodic_register(self.register_duration), name='Periodic Register')
-            receive_task = asyncio.create_task(self.sip_core.receive(), name='Receive Messages Task')
+            tasks.append(register_task)
+            if not self.sip_core.receive_task:
+                receive_task = asyncio.create_task(self.sip_core.receive(), name='Receive Messages Task')
+                self.sip_core.receive_task = receive_task
+                tasks.append(self.sip_core.receive_task)
 
             try:
-                self.all_tasks.extend([receive_task, register_task])
-                await asyncio.gather(receive_task, register_task)
+                self.all_tasks.extend(tasks)
+                self.registered.set()
+                await asyncio.gather(*tasks)
             except asyncio.CancelledError:
                 if receive_task.done():
                     pass
@@ -91,12 +114,19 @@ class SipClient:
         await self.sip_core.send(unregister)
         try:
             await asyncio.wait_for(self.unregistered.wait(), 4)
-            logger.log(logging.INFO, "Sip client has been de-registered from the server")
+            logger.log(
+                logging.INFO, 
+                "Sip Account: %s has been de-registered from the server", self.username
+            )
         except asyncio.TimeoutError:
-            logger.log(logging.WARNING, "Failed to de-register. Closing the app.")
+            logger.log(
+                logging.WARNING, 
+                "Failed to de-register Sip Account: %s", self.username
+            )
 
         self.sip_core.is_running.clear()
         await self.sip_core.close_connections()
+        self.registered.clear()
 
     async def periodic_register(self, delay: float):
         while True:
@@ -189,7 +219,7 @@ class SipClient:
             msg = (f"REGISTER sip:{self.server};transport={self.CTS} SIP/2.0\r\n"
                    f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={received_message.branch};alias\r\n"
                    f"Max-Forwards: 70\r\n"
-                   f"From: <sip:{self.username}@{self.server}>;tag={from_tag}\r\n"
+                   f"From: <sip:{self.caller_id}@{self.server}>;tag={from_tag}\r\n"
                    f"To: <sip:{self.username}@{self.server}>;tag={to_tag}\r\n"
                    f"Call-ID: {call_id}\r\n"
                    f"CSeq: {cseq} REGISTER\r\n"
@@ -214,7 +244,7 @@ class SipClient:
             msg = (f"REGISTER sip:{self.server};transport={self.CTS} SIP/2.0\r\n"
                    f"Via: SIP/2.0/{self.CTS} {ip}:{my_public_port};rport;branch={branch_id};alias\r\n"
                    f"Max-Forwards: 70\r\n"
-                   f"From: <sip:{self.username}@{self.server}>;tag={self.register_tags['local_tag']}\r\n"
+                   f"From: <sip:{self.caller_id}@{self.server}>;tag={self.register_tags['local_tag']}\r\n"
                    f"To: <sip:{self.username}@{self.server}>\r\n"
                    f"Call-ID: {call_id}\r\n"
                    f"CSeq: {cseq} REGISTER\r\n"
@@ -229,17 +259,16 @@ class SipClient:
         _, port = self.sip_core.get_extra_info('sockname')
         my_public_ip = self.my_public_ip
 
-        msg = "SIP/2.0 200 OK\r\n"
-        msg += (f"Via: SIP/2.0/{self.CTS} {my_public_ip}:{port};rport;" +
-                f"branch={data_parsed.branch}\r\n")
+        msg = "SIP/2.0 200 OK\r\n" 
+        msg += f"Via: {data_parsed.get_header('Via')}\r\n"
 
         if data_parsed.method == "OPTIONS":
-            to_tag = self.sip_core.generate_tag()
+            to_tag = self.sip_core.generate_tag() 
             msg += f"From: {data_parsed.get_header('From')}\r\n"
-            msg += f"To: <sip:{self.username}@{self.server}>;tag={to_tag}\r\n"
+            msg += f"To: <sip:{self.username}@{my_public_ip}>;tag={to_tag}\r\n"
         else:
             msg += f"From: <sip:{self.username}@{self.server}>;tag={data_parsed.from_tag}\r\n"
-            msg += f"To: <sip:{self.username}@{self.server}>;tag={data_parsed.to_tag}\r\n"
+            msg += f"To: <sip:{self.username}@{self.server}>;tag={data_parsed.to_tag}\r\n" 
 
         msg += f"Call-ID: {data_parsed.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
