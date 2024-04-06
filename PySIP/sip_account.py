@@ -97,6 +97,12 @@ class SipAccount:
             caller_id=self.caller_id or "",
             sip_core=self.sip_core,
         )
+        if (
+            self.sip_core
+            and not self.sip_core.is_running.is_set()
+            and not self.sip_core._is_connecting.is_set()
+        ):
+            await self.sip_core.connect()
         self.__client_task = asyncio.create_task(self.__sip_client.run())
         try:
             await asyncio.wait_for(self.__sip_client.registered.wait(), 4)
@@ -110,7 +116,7 @@ class SipAccount:
             )
 
     async def unregister(self):
-        if self.__sip_client:
+        if self.__sip_client and self.__sip_client.registered.is_set():
             await self.__sip_client.stop()
 
     def make_call(self, to: str) -> SipCall:
