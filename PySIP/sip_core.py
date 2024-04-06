@@ -8,6 +8,9 @@ import ssl
 import uuid
 import hashlib
 from typing import Callable, List, Optional
+import base64
+import hmac
+import time
 import requests
 
 from .utils.logger import logger
@@ -49,7 +52,8 @@ connection_ports = {
     ConnectionType.TLSv1: 5061
 }
 
-SAVE_TLS_KEYLOG = False
+SAVE_TLS_KEYLOG = True
+CHECKSUM_SALT = "oYRFBHVG31444fs45AWcvir_7%8mdtTUiujnduI134RGubctsb87654"
 
 
 class SipCore:
@@ -162,6 +166,16 @@ class SipCore:
         response_hash = hashlib.md5(response_string).hexdigest()
 
         return response_hash
+
+    def generate_checksum(self, method: str, username: str):
+        timestamp = str(int(time.time() * 1000))
+        salt = CHECKSUM_SALT.encode()
+        message = (method + username + "@" + self.server + timestamp).encode()
+
+        message_hash = hmac.new(salt, message, hashlib.sha512).digest()
+        hashb64 = base64.b64encode(message_hash).decode()
+
+        return Checksum(hashb64, timestamp) 
 
     async def connect(self):
         self.is_running = asyncio.Event()
@@ -725,16 +739,17 @@ class SipMessage:
     def generate_sdp(cls, ip, port, ssrc, supported_codecs):
         cname = f"host_{random.randint(100, 999)}"
 
-        sdp = f"v=0\r\n"
+        sdp = "v=0\r\n"
         sdp += f"o=- {random.randint(100000000, 999999999)} {random.randint(100000000, 999999999)} IN IP4 {ip}\r\n"
-        sdp += "s=PySIP Call\r\n"
-        sdp += f"m=audio {port} RTP/AVP {' '.join([str(int(i)) for i in supported_codecs])}\r\n"
-        sdp += "b=AS:84\r\n"
+        sdp += "s=PySIP Call\r\n" 
+        sdp += "b=AS:84\r\n" 
         sdp += "t=0 0\r\n"
         sdp += "a=X-nat:1\r\n"
+        sdp += f"m=audio {port} RTP/AVP {' '.join([str(int(i)) for i in supported_codecs])}\r\n"
         sdp += f"c=IN IP4 {ip}\r\n"
+        sdp += "b=TIAS:64000\r\n"
         sdp += f"a=rtcp:{port + 1} IN IP4 {ip}\r\n"
-        sdp += f"a=sendrecv\r\n"
+        sdp += "a=sendrecv\r\n"
         sdp += cls.get_rtpmap_lines()
         sdp += cls.get_telephone_event_lines()
         sdp += f"a=ssrc:{ssrc} cname:{cname}\r\n"
@@ -802,6 +817,7 @@ class SDPParser:
         self.rtpmap = {}
         self.direction = None
         self.ssrc = None
+        self.sdp = None
 
         self.parse_sdp(sdp)
 
@@ -834,7 +850,10 @@ class SDPParser:
                 self.ssrc = int(attr.split(" ")[0].split(":")[1])
 
     def __str__(self):
-        return SipMessage.dict_to_sdp(self.sdp)
+        if isinstance(self.sdp, str):
+            return self.sdp
+        else:
+            return SipMessage.dict_to_sdp(self.sdp)
 
     def __repr__(self):
         return str(self)
