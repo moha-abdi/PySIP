@@ -237,7 +237,9 @@ class SipCall:
             random.getrandbits(32),
             CODECS,
         )
+        sdp_str = sdp
         sdp = SipMessage.parse_sdp(SipMessage.sdp_to_dict(sdp))
+        sdp.sdp = sdp_str
         self.dialogue._local_session_info = sdp
 
     def generate_invite_message(self, auth=False, received_message=None):
@@ -282,6 +284,7 @@ class SipCall:
         call_id = self.call_id
         branch_id = self.sip_core.gen_branch()
         transaction = self.dialogue.add_transaction(branch_id, "INVITE")
+        generated_checksum = self.sip_core.generate_checksum("INVITE", self.username)
 
         msg = (
             f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
@@ -291,6 +294,9 @@ class SipCall:
             f"To: sip:{self.callee}@{self.server}\r\n"
             f"Call-ID: {call_id}\r\n"
             f"CSeq: {transaction.cseq} INVITE\r\n"
+            f"Client-Checksum: {generated_checksum.checksum}\r\n"
+            f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
+            f"User-Agent: WAAFI-iOS-8.0.12\r\n"
             f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS}>;expires=3600\r\n"
             f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
             "Supported: replaces, timer\r\n"
@@ -301,7 +307,7 @@ class SipCall:
         if auth_header:
             msg += auth_header
 
-        body = str(self.dialogue.local_session_info)
+        body = str(self.dialogue.local_session_info) 
         msg += f"Content-Length: {len(body.encode())}\r\n\r\n{body}"
 
         return msg

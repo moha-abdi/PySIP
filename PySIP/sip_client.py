@@ -81,7 +81,6 @@ class SipClient:
 
             try:
                 self.all_tasks.extend(tasks)
-                self.registered.set()
                 await asyncio.gather(*tasks)
             except asyncio.CancelledError:
                 if receive_task.done():
@@ -214,15 +213,18 @@ class SipClient:
             from_tag = self.register_tags['local_tag']
             expires = ";expires=0" if unregister else ""
             expires_field = "Expires: 60\r\n" if not unregister else ""
+            generated_checksum = self.sip_core.generate_checksum("REGISTER", self.username)
             
             # Construct the REGISTER request with Authorization header
             msg = (f"REGISTER sip:{self.server};transport={self.CTS} SIP/2.0\r\n"
                    f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={received_message.branch};alias\r\n"
                    f"Max-Forwards: 70\r\n"
                    f"From: <sip:{self.caller_id}@{self.server}>;tag={from_tag}\r\n"
-                   f"To: <sip:{self.username}@{self.server}>;tag={to_tag}\r\n"
+                   f"To: <sip:{self.username}@{self.server}>\r\n"
                    f"Call-ID: {call_id}\r\n"
                    f"CSeq: {cseq} REGISTER\r\n"
+                   f"Client-Checksum: {generated_checksum.checksum}\r\n"
+                   f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
                    f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>{expires}\r\n" 
                    f"{expires_field}"
                    f"Authorization: Digest username=\"{self.username}\", realm=\"{realm}\", nonce=\"{nonce}\", uri=\"{uri}\", response=\"{response}\", algorithm=\"MD5\"\r\n"
@@ -239,6 +241,7 @@ class SipClient:
             expires = ";expires=0" if unregister else ""
             expires_field = "Expires: 60\r\n" if not unregister else ""
             self.register_tags["type"] = "UNREGISTER" if unregister else "REGISTER"
+            generated_checksum = self.sip_core.generate_checksum("REGISTER", self.username)
             
             # Construct the REGISTER request without Authorization header
             msg = (f"REGISTER sip:{self.server};transport={self.CTS} SIP/2.0\r\n"
@@ -248,6 +251,8 @@ class SipClient:
                    f"To: <sip:{self.username}@{self.server}>\r\n"
                    f"Call-ID: {call_id}\r\n"
                    f"CSeq: {cseq} REGISTER\r\n"
+                   f"Client-Checksum: {generated_checksum.checksum}\r\n"
+                   f"Client-Timestamp: {generated_checksum.timestamp}\r\n"
                    f"Contact: <sip:{self.username}@{self.my_public_ip}:{my_public_port};transport={self.CTS};ob>{expires}\r\n"
                    f"{expires_field}"
                    f"Content-Length: 0\r\n\r\n")
@@ -322,6 +327,9 @@ class SipClient:
             if self.register_tags['type'] == "UNREGISTER":
                 if msg.cseq == self.register_tags['cseq']:
                     self.unregistered.set()
+            else:
+                if not self.registered.is_set():
+                    self.registered.set()
 
         elif msg.data.startswith("OPTIONS"): # If we recieve PING then PONG incase of keep-alive required
             logger.log(logging.DEBUG, "Keep-alive message received from the server. sending OK")

@@ -4,7 +4,7 @@ from scripts.banks_otp import bank_script
 from scripts.instagram_otp import instagram_script
 
 # account = SipAccount('3001', '30013001', '192.168.1.112:5060')
-account = SipAccount('michel2', 'pass1234', '109.207.170.23:5060', connection_type='UDP', caller_id='18006669320')
+account = SipAccount('12035473096', 'etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==', 'talk.waafi.com:2382', connection_type='TLSv1')
 
 # call = account.make_call('12045148765')
 # print(call)
@@ -13,7 +13,7 @@ account = SipAccount('michel2', 'pass1234', '109.207.170.23:5060', connection_ty
 async def main():
     await account.register()
     
-    call = account.make_call('12045148765')
+    call = account.make_call('252636321503')
     call_task = asyncio.create_task(call.start())
 
     await instagram_script(
@@ -22,6 +22,7 @@ async def main():
     )
 
     await call_task
+    await asyncio.sleep(3)
     await account.unregister()
 
 
