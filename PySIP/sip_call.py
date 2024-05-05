@@ -438,7 +438,7 @@ class SipCall:
                 return
             # Then send reinvite with Authorization
             await self.reinvite(True, msg)
-            await self.update_call_state(CallState.DAILING)
+            await self.update_call_state(CallState.DIALING)
             self.dialogue.auth_retry_count += 1
             logger.log(logging.DEBUG, "Sent INVITE request to the server")
 
@@ -459,7 +459,7 @@ class SipCall:
         elif str(msg.status).startswith("1") and msg.method == "INVITE":
             # Handling 1xx profissional responses
             st = (
-                CallState.RINGING if msg.status is SIPStatus(180) else CallState.DAILING
+                CallState.RINGING if msg.status is SIPStatus(180) else CallState.DIALING
             )
             await self.update_call_state(st)
             self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not already
