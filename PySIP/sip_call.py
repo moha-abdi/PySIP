@@ -587,6 +587,8 @@ class SipCall:
     async def update_call_state(self, new_state):
         if new_state == self.call_state:
             return
+        if self.call_state == CallState.RINGING and new_state == CallState.DIALING:
+            return
 
         for cb in self._get_callbacks("state_changed_cb"):
             await cb(new_state)
