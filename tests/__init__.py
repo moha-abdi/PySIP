@@ -1,5 +1,3 @@
-print("me")
-
 import sys
 import os
 

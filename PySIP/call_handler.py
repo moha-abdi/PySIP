@@ -85,7 +85,7 @@ class CallHandler:
     ):
         """This method gathers a dtmf tone with the specified
         length and then returns when done""" 
-        if not self.call.sip_core.is_running.is_set():
+        if self.call._is_call_stopped:
             raise RuntimeError("Call is no longer ongoing")
 
         dtmf_future: asyncio.Future = asyncio.Future()
@@ -139,12 +139,13 @@ class CallHandler:
 
             except asyncio.TimeoutError:
                 text = delay_msg or "You did not press any keys, please try again"
-                await self.say(text)
+                stream_id = await self.say(text)
+                await stream_id.wait_finished()
                 continue
 
         text = (
             loop_msg
-            or f"You failed to enter the key in {loop} tries. Hanging up the call"
+            or f"You failed to enter the key in {loop} tries."
         )
         stream = await self.say(text)
         await stream.wait_finished()
@@ -259,7 +260,7 @@ class CallHandler:
             logger.log(logging.INFO, "CallHandler has been initialized..")
 
             while True:
-                if not self.call.sip_core.is_running.is_set():
+                if self.call._is_call_stopped:
                     break  # Exit the loop if the call is not running
 
                 if self.call.call_state in [CallState.ENDED, CallState.FAILED, CallState.BUSY]:

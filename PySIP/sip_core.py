@@ -43,6 +43,7 @@ class DialogState(Enum):
 class DTMFMode(Enum):
     RFC_2833 = auto()
     INBAND = auto()
+    AUTO = auto()
 
 
 connection_ports = {
@@ -52,7 +53,7 @@ connection_ports = {
     ConnectionType.TLSv1: 5061
 }
 
-SAVE_TLS_KEYLOG = True
+SAVE_TLS_KEYLOG = False
 CHECKSUM_SALT = "oYRFBHVG31444fs45AWcvir_7%8mdtTUiujnduI134RGubctsb87654"
 
 

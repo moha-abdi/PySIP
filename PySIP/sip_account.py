@@ -38,7 +38,7 @@ class SipAccount:
             self.__setup_connection_type()
 
         self.sip_core: Optional[SipCore] = SipCore(
-            self.username, self.hostname, connection_type, password
+            self.username, self.hostname, self.connection_type, password
         )
 
     def __parse_hostname(self, hostname: str, connection_type):

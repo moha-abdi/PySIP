@@ -444,7 +444,7 @@ class SipCall:
                 return
             # Then send reinvite with Authorization
             await self.reinvite(True, msg)
-            await self.update_call_state(CallState.DAILING)
+            await self.update_call_state(CallState.DIALING)
             self.dialogue.auth_retry_count += 1
             logger.log(logging.DEBUG, "Sent INVITE request to the server")
 
@@ -465,7 +465,7 @@ class SipCall:
         elif str(msg.status).startswith("1") and msg.method == "INVITE":
             # Handling 1xx profissional responses
             st = (
-                CallState.RINGING if msg.status is SIPStatus(180) else CallState.DAILING
+                CallState.RINGING if msg.status is SIPStatus(180) else CallState.DIALING
             )
             await self.update_call_state(st)
             self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not already
@@ -652,6 +652,7 @@ class SipCall:
                 self._callbacks,
             )
             # start the session
+            logger.log(logging.INFO, "%s Answered the call.", self.callee)
             _rtp_task = asyncio.create_task(self._rtp_session._start())
             self._rtp_session._rtp_task = _rtp_task
             self._register_callback("dtmf_handler", self._dtmf_handler.dtmf_callback)
@@ -766,9 +767,11 @@ class DTMFHandler:
         event(*args)
 
     async def get_dtmf(self, length=1, finish_on_key=None) -> str:
+        # first reset the Queue
+        self.clear_queue()
         dtmf_codes: List[str] = []
 
-        if finish_on_key:
+        if finish_on_key is not None:
             while True:
                 code = await self.queue.get()
                 if dtmf_codes and code == finish_on_key:
@@ -786,3 +789,10 @@ class DTMFHandler:
 
         self.started_typing_event.clear()
         return "".join(dtmf_codes)
+
+    def clear_queue(self):
+        while not self.queue.empty():
+            try:
+                self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break

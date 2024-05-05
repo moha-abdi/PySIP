@@ -27,7 +27,7 @@ RTP_HEADER_LENGTH = 12
 RTP_PORT_RANGE = range(10_000, 20_000)
 SEND_SILENCE = True # send silence frames when no stream
 USE_AMD_APP = True
-DTMF_MODE = DTMFMode.RFC_2833
+DTMF_MODE = DTMFMode.AUTO
 
 
 def decoder_worker(input_data, output_qs, loop):
@@ -117,9 +117,18 @@ class RTPClient:
         self.__recv_thread = None
         self.__amd_thread = None
         self.__dtmf_thread = None
+        self.DTMF_MODE = DTMF_MODE
         self.__all_threads: List[threading.Thread] = []
 
     async def _start(self):
+        if self.DTMF_MODE is DTMFMode.AUTO:
+            rfc_2833_supported = self.is_rfc_2833_supported(self.offered_codecs)
+            if rfc_2833_supported:
+                self.DTMF_MODE = DTMFMode.RFC_2833
+            else:
+                self.DTMF_MODE = DTMFMode.INBAND
+            logger.log(logging.INFO, "Using DTMF Mode -> %s", self.DTMF_MODE)
+
         self.is_running.set()
         logger.log(
             logging.DEBUG,
@@ -179,7 +188,7 @@ class RTPClient:
             __amd_thread_id = self.__amd_thread.ident
             self.__amd_thread.setName(f"AMD Thread - ({__amd_thread_id})")
 
-        if DTMF_MODE is DTMFMode.INBAND:
+        if self.DTMF_MODE is DTMFMode.INBAND:
             self.__dtmf_thread = threading.Thread(
                 target=self._handle_inband,
                 name='Inband DTMF Thread',
@@ -249,7 +258,7 @@ class RTPClient:
         if not packet.marker:
             return
 
-        if not DTMF_MODE == DTMFMode.RFC_2833:
+        if not self.DTMF_MODE == DTMFMode.RFC_2833:
             logger.log(logging.DEBUG, "RFC_2833 DRMF key received but ignored")
             return
 
@@ -371,7 +380,7 @@ class RTPClient:
                 packet = RtpPacket.parse(data)
                 if packet.payload_type == CodecInfo.EVENT:
                     # handle rfc 2833 
-                    if DTMF_MODE is DTMFMode.RFC_2833:
+                    if self.DTMF_MODE is DTMFMode.RFC_2833:
                         try:
                             asyncio.run_coroutine_threadsafe(
                                 self._handle_rfc_2833(packet), loop
