@@ -1,4 +1,9 @@
-# <img src="/api/placeholder/32/32" alt="PySIP Logo" style="vertical-align: middle;"> **PySIP**: Python SIP Library for Custom VoIP Solutions
+<p align="center">
+  <img src=".github/images/banner.png" alt="PySIP Logo" style="display: block; margin: 0 auto;">
+</p>
+<p align="center">
+  <b>PySIP</b>: Python SIP Library for Custom VoIP Solutions
+</p>
 
 **PySIP** is an asynchronous Python library designed to simplify working with the Session Initiation Protocol (SIP) for VoIP communication. Whether you're building automated call systems, interactive voice response (IVR) menus, or any SIP-based application, PySIP gives you the flexibility to create and manage SIP accounts, handle calls, and implement custom logic with ease.
 
@@ -6,23 +11,23 @@
 
 <div style="display: flex; flex-wrap: wrap; gap: 20px;">
   <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src="/api/placeholder/24/24" alt="Account Icon" style="vertical-align: middle;"> Complete SIP Account Management</h3>
+    <h3><img src=".github/images/woman.png" alt="Account Icon" style="vertical-align: middle;"> Complete SIP Account Management</h3>
     <p>Easily create, register, and manage SIP accounts.</p>
   </div>
   <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src="/api/placeholder/24/24" alt="Flow Icon" style="vertical-align: middle;"> Custom Call Flows</h3>
+    <h3><img src=".github/images/mappings.png" alt="Flow Icon" style="vertical-align: middle;"> Custom Call Flows</h3>
     <p>Write scripts to automate call flows with your own business logic.</p>
   </div>
   <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src="/api/placeholder/24/24" alt="Network Icon" style="vertical-align: middle;"> UDP Transport Layer</h3>
+    <h3><img src=".github/images/networking.png" alt="Network Icon" style="vertical-align: middle;"> UDP Transport Layer</h3>
     <p>Asynchronous, efficient UDP transport for sending and receiving SIP messages.</p>
   </div>
   <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src="/api/placeholder/24/24" alt="Phone Icon" style="vertical-align: middle;"> Flexible Call Handling</h3>
+    <h3><img src=".github/images/phone-call.png" alt="Phone Icon" style="vertical-align: middle;"> Flexible Call Handling</h3>
     <p>Handle incoming and outgoing SIP calls, play messages, and gather user input.</p>
   </div>
   <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src="/api/placeholder/24/24" alt="Puzzle Icon" style="vertical-align: middle;"> Fully Extensible</h3>
+    <h3><img src=".github/images/jigsaw.png" alt="Puzzle Icon" style="vertical-align: middle;"> Fully Extensible</h3>
     <p>Includes an example bot for appointment booking, but you can easily write any SIP-based automation you need.</p>
   </div>
 </div>
