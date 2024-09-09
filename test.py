@@ -1,25 +1,25 @@
 import asyncio
+import os
 from PySIP.sip_account import SipAccount
-from scripts.banks_otp import bank_script
-from scripts.instagram_otp import instagram_script
+from scripts.appointment_booking_bot import appointment_booking_bot
+from dotenv import load_dotenv
 
-# account = SipAccount('3001', '30013001', '192.168.1.112:5060')
-account = SipAccount('michel2', 'pass1234', '109.207.170.23:5060', connection_type='UDP', caller_id='18006669320')
+load_dotenv()
 
-# call = account.make_call('12045148765')
-# print(call)
+account = SipAccount(
+    os.environ["SIP_USERNAME"],
+    os.environ["SIP_PASSWORD"],
+    os.environ["SIP_SERVER"],
+)
 
 
 async def main():
     await account.register()
-    
-    call = account.make_call('12045148765')
+
+    call = account.make_call("111")
     call_task = asyncio.create_task(call.start())
 
-    await instagram_script(
-        call.call_handler,
-        victim_name="John"
-    )
+    await appointment_booking_bot(call.call_handler, customer_name="John")
 
     await call_task
     await account.unregister()

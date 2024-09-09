@@ -1,4 +1,6 @@
 secrets.ini
+.env
+
 *.mp3
 *.wav
 *.raw
