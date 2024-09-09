@@ -312,5 +312,5 @@ Contributions are welcome! If you would like to contribute to the development of
 ---
 
 <div style="text-align: center; margin-top: 30px;">
-  <p>Made with ❤️ by the PySIP Team</p>
+  <p>Made with ❤️ by the Moha Abdi</p>
 </div>
