@@ -9,28 +9,69 @@
 
 ## ✨ **Features**
 
-<div style="display: flex; flex-wrap: wrap; gap: 20px;">
-  <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src=".github/images/woman.png" alt="Account Icon" style="vertical-align: middle;"> Complete SIP Account Management</h3>
-    <p>Easily create, register, and manage SIP accounts.</p>
-  </div>
-  <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src=".github/images/mappings.png" alt="Flow Icon" style="vertical-align: middle;"> Custom Call Flows</h3>
-    <p>Write scripts to automate call flows with your own business logic.</p>
-  </div>
-  <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src=".github/images/networking.png" alt="Network Icon" style="vertical-align: middle;"> UDP Transport Layer</h3>
-    <p>Asynchronous, efficient UDP transport for sending and receiving SIP messages.</p>
-  </div>
-  <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src=".github/images/phone-call.png" alt="Phone Icon" style="vertical-align: middle;"> Flexible Call Handling</h3>
-    <p>Handle incoming and outgoing SIP calls, play messages, and gather user input.</p>
-  </div>
-  <div style="flex: 1; min-width: 200px; border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; margin-bottom: 10px;">
-    <h3><img src=".github/images/jigsaw.png" alt="Puzzle Icon" style="vertical-align: middle;"> Fully Extensible</h3>
-    <p>Includes an example bot for appointment booking, but you can easily write any SIP-based automation you need.</p>
-  </div>
-</div>
+<table style="width: 100%; border-collapse: separate; border-spacing: 0 10px;">
+  <tr>
+    <th style="width: 40px;"></th>
+    <th style="text-align: left; padding: 10px 0;">Feature</th>
+    <th style="text-align: left; padding: 10px 0;">Description</th>
+  </tr>
+  <tr>
+    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
+      <img src=".github/images/accountant.png" alt="Account Icon" style="width: 24px; height: 24px; vertical-align: middle;">
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+      Complete SIP Account Management
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+      Easily create, register, and manage SIP accounts.
+    </td>
+  </tr>
+  <tr>
+    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
+      <img src=".github/images/planning.png" alt="Flow Icon" style="width: 24px; height: 24px; vertical-align: middle;">
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+      Custom Call Flows
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+      Write scripts to automate call flows with your own business logic.
+    </td>
+  </tr>
+  <tr>
+    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
+      <img src=".github/images/networking.png" alt="Network Icon" style="width: 24px; height: 24px; vertical-align: middle;">
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+      UDP Transport Layer
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+      Asynchronous, efficient UDP transport for sending and receiving SIP messages.
+    </td>
+  </tr>
+  <tr>
+    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
+      <img src=".github/images/phone-call.png" alt="Phone Icon" style="width: 24px; height: 24px; vertical-align: middle;">
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+      Flexible Call Handling
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+      Handle incoming and outgoing SIP calls, play messages, and gather user input.
+    </td>
+  </tr>
+  <tr>
+    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
+      <img src=".github/images/jigsaw.png" alt="Puzzle Icon" style="width: 24px; height: 24px; vertical-align: middle;">
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+      Fully Extensible
+    </td>
+    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+      Includes an example bot for appointment booking, but you can easily write any SIP-based automation you need.
+    </td>
+  </tr>
+</table>
+
 
 ## 📚 **Table of Contents**
 1. [Installation](#-installation)
