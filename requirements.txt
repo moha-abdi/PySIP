@@ -2,3 +2,4 @@ pydub
 requests
 edge-tts
 janus
+python-dotenv

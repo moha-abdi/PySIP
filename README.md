@@ -2,7 +2,7 @@
   <img src=".github/images/banner.png" alt="PySIP Logo" style="display: block; margin: 0 auto;">
 </p>
 <p align="center">
-  <b>PySIP</b>: Python SIP Library for Custom VoIP Solutions
+  <b>Python SIP Library for Custom VoIP Solutions</b>
 </p>
 
 **PySIP** is an asynchronous Python library designed to simplify working with the Session Initiation Protocol (SIP) for VoIP communication. Whether you're building automated call systems, interactive voice response (IVR) menus, or any SIP-based application, PySIP gives you the flexibility to create and manage SIP accounts, handle calls, and implement custom logic with ease.
@@ -11,14 +11,10 @@
 
 <table style="width: 100%; border-collapse: separate; border-spacing: 0 10px;">
   <tr>
-    <th style="width: 40px;"></th>
     <th style="text-align: left; padding: 10px 0;">Feature</th>
     <th style="text-align: left; padding: 10px 0;">Description</th>
   </tr>
   <tr>
-    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
-      <img src=".github/images/accountant.png" alt="Account Icon" style="width: 24px; height: 24px; vertical-align: middle;">
-    </td>
     <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
       Complete SIP Account Management
     </td>
@@ -27,9 +23,6 @@
     </td>
   </tr>
   <tr>
-    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
-      <img src=".github/images/planning.png" alt="Flow Icon" style="width: 24px; height: 24px; vertical-align: middle;">
-    </td>
     <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
       Custom Call Flows
     </td>
@@ -38,9 +31,6 @@
     </td>
   </tr>
   <tr>
-    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
-      <img src=".github/images/networking.png" alt="Network Icon" style="width: 24px; height: 24px; vertical-align: middle;">
-    </td>
     <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
       UDP Transport Layer
     </td>
@@ -49,9 +39,6 @@
     </td>
   </tr>
   <tr>
-    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
-      <img src=".github/images/phone-call.png" alt="Phone Icon" style="width: 24px; height: 24px; vertical-align: middle;">
-    </td>
     <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
       Flexible Call Handling
     </td>
@@ -60,9 +47,6 @@
     </td>
   </tr>
   <tr>
-    <td style="text-align: center; padding: 10px; background-color: #f6f8fa; border-radius: 6px 0 0 6px;">
-      <img src=".github/images/jigsaw.png" alt="Puzzle Icon" style="width: 24px; height: 24px; vertical-align: middle;">
-    </td>
     <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
       Fully Extensible
     </td>
@@ -93,7 +77,7 @@
 
 ### Step 1: Clone the repository
 ```bash
-git clone https://github.com/yourusername/PySIP.git
+git clone https://github.com/moha-abdi/PySIP.git
 cd PySIP
 ```
 
@@ -185,19 +169,19 @@ The `SipAccount` class is at the core of PySIP. It handles all account-related t
 account = SipAccount(username, password, server)
 ```
 
-#### **Registering**: 
+#### **Registering**:
 Call the `register()` method to register the SIP account with the server:
 ```python
 await account.register()
 ```
 
-#### **Making Calls**: 
+#### **Making Calls**:
 The `make_call(destination)` method initiates a call to the destination number:
 ```python
 call = account.make_call("destination_number")
 ```
 
-#### **Unregistering**: 
+#### **Unregistering**:
 When you're done, unregister the account to gracefully close the session:
 ```python
 await account.unregister()
@@ -215,13 +199,13 @@ The `CallHandler` is responsible for handling the call flow. It allows you to sa
 await call_handler.say("Welcome to our service.")
 ```
 
-#### **Gathering user input**: 
-Use `gather_and_say()` to gather input from the user, such as pressing a digit:
+#### **Gathering user input**:
+Use `gather()` to gather input from the user, such as pressing a digit:
 ```python
-option = await call_handler.gather_and_say(length=1, delay=5)
+dtmf_key = await call_handler.gather(length=1, timeout=5)
 ```
 
-#### **Transferring the call**: 
+#### **Transferring the call**:
 You can forward the call to another number:
 ```python
 await call_handler.transfer_to("1234567890")
@@ -234,13 +218,13 @@ await call_handler.transfer_to("1234567890")
 
 The `UdpHandler` is an internal module that manages the asynchronous sending and receiving of SIP messages over the network.
 
-#### **Sending a message**: 
+#### **Sending a message**:
 The `send_message()` method sends a UDP message to the SIP server or peer:
 ```python
 self.transport.sendto(message)
 ```
 
-#### **Receiving a datagram**: 
+#### **Receiving a datagram**:
 The `datagram_received()` method handles incoming messages, placing them in a queue for processing:
 ```python
 self.data_q.put_nowait(data)
@@ -311,6 +295,6 @@ Contributions are welcome! If you would like to contribute to the development of
 
 ---
 
-<div style="text-align: center; margin-top: 30px;">
-  <p>Made with ❤️ by the Moha Abdi</p>
+<div style="text-align: center; align: center; margin-top: 30px;" align="center">
+  <p align="center">Made with ❤️ by the Moha Abdi</p>
 </div>
