@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/images/banner.png" alt="PySIP Logo" style="display: block; margin: 0 auto;">
+  <img src="https://raw.githubusercontent.com/moha-abdi/pysip/main/.github/images/banner.png" alt="PySIP Logo" style="display: block; margin: 0 auto;">
 </p>
 <p align="center">
   <b>Python SIP Library for Custom VoIP Solutions</b>

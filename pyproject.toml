@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "PySIPio"
+version = "1.7.0"
+description = "Python SIP Library for Custom VoIP Solutions"
+authors = [{name = "Moha Abdi", email = "mohaa6052@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Communications :: Internet Phone",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "pydub>=0.25.1",
+    "requests>=2.25.1",
+    "edge-tts>=5.0.0",
+    "python-dotenv>=0.19.0",
+]
+
+keywords = [
+    "SIP",
+    "VoIP",
+    "Session Initiation Protocol",
+    "Voice over IP",
+    "telephony",
+    "communication",
+    "UDP",
+    "async",
+    "asynchronous",
+    "call handling",
+    "PBX",
+    "IVR",
+    "interactive voice response",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/moha-abdi/PySIP"
+"Bug Tracker" = "https://github.com/moha-abdi/PySIP/issues"
+
+[tool.setuptools]
+packages = ["PySIP"]
+
+[tool.setuptools.package-data]
+PySIP = [".github/images/*.png"]
