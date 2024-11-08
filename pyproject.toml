@@ -45,8 +45,8 @@ keywords = [
 "Homepage" = "https://github.com/moha-abdi/PySIP"
 "Bug Tracker" = "https://github.com/moha-abdi/PySIP/issues"
 
-[tool.setuptools]
-packages = ["PySIP"]
+[tool.setuptools.packages.find]
+include = ["PySIP", "PySIP.*"]
 
 [tool.setuptools.package-data]
 PySIP = [".github/images/*.png"]
