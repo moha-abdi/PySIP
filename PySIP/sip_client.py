@@ -332,7 +332,6 @@ class SipClient:
         # difference is that its handled inside the :obj:`Client`
         # and it's onlt for developer's usage. unlike other handlers
         # it has no filters for now.
-        print(msg.data)
         to = msg.get_header("To")
         if (
             not msg.call_id == self.call_id and self.username not in to
