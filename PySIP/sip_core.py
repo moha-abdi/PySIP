@@ -46,7 +46,7 @@ connection_ports = {
     ConnectionType.UDP: 5060,
     ConnectionType.TCP: 5060,
     ConnectionType.TLS: 5061,
-    ConnectionType.TLSv1: 5061
+    ConnectionType.TLSv1: 5061,
 }
 
 SAVE_TLS_KEYLOG = False
@@ -389,9 +389,9 @@ class SipDialogue:
         self.call_id = call_id
         self.local_tag = local_tag  # The tag of the party who initiated the dialogue
         self.remote_tag = remote_tag  # The tag of the other party
-        self.transactions: List[
-            SipTransaction
-        ] = []  # List to store transactions related to this dialogue
+        self.transactions: List[SipTransaction] = (
+            []
+        )  # List to store transactions related to this dialogue
         self.cseq = Counter(random.randint(1, 2000))
         self.state = DialogState.PREDIALOG  # Start with the PREDIALOG state
         self.events = {state: asyncio.Event() for state in DialogState}
@@ -460,7 +460,7 @@ class SipDialogue:
         self.events[self.state].set()
 
         if self.state != self.previous_state:
-            logger.log(logging.DEBUG, f"Dialog state changed to -> {self.state}") 
+            logger.log(logging.DEBUG, f"Dialog state changed to -> {self.state}")
 
     @property
     def local_session_info(self):
