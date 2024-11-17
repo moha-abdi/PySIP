@@ -1,13 +1,8 @@
-
 from .g711 import PcmaDecoder, PcmaEncoder, PcmuDecoder, PcmuEncoder
 from .codec_info import CodecInfo
 
 
-CODECS = [
-    CodecInfo.PCMA,
-    CodecInfo.PCMU,
-    CodecInfo.EVENT
-]
+CODECS = [CodecInfo.PCMA, CodecInfo.PCMU, CodecInfo.EVENT]
 
 
 def get_encoder(codec: CodecInfo):
@@ -17,6 +12,7 @@ def get_encoder(codec: CodecInfo):
         return PcmuEncoder()
     else:
         raise ValueError(f"No encoder found for: {codec}")
+
 
 def get_decoder(codec: CodecInfo):
     if codec == CodecInfo.PCMA:

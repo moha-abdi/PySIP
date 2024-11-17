@@ -1,7 +1,8 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
 import logging
-from typing import List, Literal, Optional
+from typing import Callable, List, Literal, Optional
 
 from .utils.logger import logger
 from .filters import ConnectionType
@@ -34,6 +35,7 @@ class SipAccount:
         self.__client_task = None
         self.__sip_client = None
         self.__calls: List[SipCall] = []
+        self.__pending_callbacks: List[Callable] = []
         if self.connection_type == "AUTO":
             self.__setup_connection_type()
 
@@ -97,6 +99,11 @@ class SipAccount:
             caller_id=self.caller_id or "",
             sip_core=self.sip_core,
         )
+        # Register any pending callbacks
+        for callback in self.__pending_callbacks:
+            self.__sip_client._register_callback("incoming_call_cb", callback)
+        self.__pending_callbacks = []  # clear pending callbacks
+
         self.__client_task = asyncio.create_task(self.__sip_client.run())
         try:
             await asyncio.wait_for(self.__sip_client.registered.wait(), 4)
@@ -139,3 +146,14 @@ class SipAccount:
             self.__calls.remove(call)
         except ValueError:
             pass
+
+    def on_incoming_call(self, func):
+        @wraps(func)
+        async def wrapper(call: SipCall):
+            return await func(call)
+
+        if self.__sip_client:
+            self.__sip_client._register_callback("incoming_call_cb", wrapper)
+        else:
+            self.__pending_callbacks.append(wrapper)
+        return

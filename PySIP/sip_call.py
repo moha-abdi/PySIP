@@ -1,10 +1,13 @@
 import asyncio
 from collections import namedtuple
+from enum import Enum
 from functools import wraps
 import logging
 import random
 from typing import Callable, Dict, List, Literal, Optional
 import wave
+
+from PySIP.utils import get_caller_number
 
 from .call_handler import CallHandler
 from .exceptions import SIPTransferException
@@ -15,6 +18,12 @@ from .utils.logger import logger, get_call_logger
 from .codecs import CODECS
 
 __all__ = ["SipCall", "DTMFHandler"]
+
+
+class CallResponse(Enum):
+    ACCEPT = "accept"
+    REJECT = "reject"
+    BUSY = "busy"
 
 
 class SipCall:
@@ -48,7 +57,7 @@ class SipCall:
         *,
         connection_type: Literal["TCP", "UDP", "TLS", "TLSv1"] = "UDP",
         caller_id: str = "",
-        sip_core = None
+        sip_core=None,
     ) -> None:
         self.username = username
         self.caller_id = username if not caller_id else caller_id
@@ -59,7 +68,11 @@ class SipCall:
         self.password = password
         self.callee = callee
         self.__sip_core = sip_core
-        self.sip_core = sip_core if sip_core is not None else SipCore(self.username, route, connection_type, password)
+        self.sip_core = (
+            sip_core
+            if sip_core is not None
+            else SipCore(self.username, route, connection_type, password)
+        )
         self.sip_core.on_message_callbacks.append(self.message_handler)
         self.sip_core.on_message_callbacks.append(self.error_handler)
         self._callbacks: Dict[str, List[Callable]] = {}
@@ -77,6 +90,7 @@ class SipCall:
         self._is_call_stopped = False
         self.dialogue = SipDialogue(self.call_id, self.sip_core.generate_tag(), "")
         self.call_state = CallState.INITIALIZING
+        self.call_response_future: Optional[asyncio.Future] = None
 
     async def start(self):
         self._refer_future = asyncio.Future()
@@ -87,8 +101,10 @@ class SipCall:
             self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
             self.setup_local_session()
             self.dialogue.username = self.username
-            if (not self.sip_core.is_running.is_set() 
-                and not self.sip_core._is_connecting.is_set()):
+            if (
+                not self.sip_core.is_running.is_set()
+                and not self.sip_core._is_connecting.is_set()
+            ):
                 # only connect if it is not already connected
                 await self.sip_core.connect()
 
@@ -189,7 +205,7 @@ class SipCall:
         elif self.dialogue.state == DialogState.TERMINATED:
             if self.__sip_core is None:
                 self.sip_core.is_running.clear()
-                await self.sip_core.close_connections() 
+                await self.sip_core.close_connections()
 
         # finally notify the callbacks
         for cb in self._get_callbacks("hanged_up_cb"):
@@ -200,6 +216,93 @@ class SipCall:
         # also check for any rtp session and stop it
         await self._cleanup_rtp()
         self._is_call_stopped = True
+
+    async def handle_incoming_call(self, initial_invite: SipMessage):
+        # send 100 Trying
+        trying_message = self.generate_trying_response(initial_invite)
+        await self.sip_core.send(trying_message)
+
+        self.my_public_ip = await asyncio.to_thread(self.sip_core.get_public_ip)
+        self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
+
+        self.call_id = initial_invite.call_id
+        self.callee = self.username  # for incoming calls we are the callee
+        self.caller_id = get_caller_number(initial_invite)
+
+        self.dialogue = SipDialogue(
+            self.call_id, self.sip_core.generate_tag(), initial_invite.from_tag
+        )
+        self.dialogue.username = self.username
+        self.dialogue._remote_session_info = SipMessage.parse_sdp(initial_invite.body)
+        self.setup_local_session()
+
+        self.call_response_future = asyncio.Future()
+        await self.update_call_state(CallState.RINGING)
+        # send 180 Ringing
+        ringing_message = self.generate_ringing_response(initial_invite)
+        await self.sip_core.send(ringing_message)
+
+        # notify the callbacks about the incoming call
+        for _cb in self._get_callbacks("incoming_call_cb"):
+            await _cb(self)
+
+        try:
+            response = await asyncio.wait_for(self.call_response_future, 15.0)
+            await self._handle_call_response(response, initial_invite)
+
+        except asyncio.TimeoutError:
+            await self._handle_call_response(CallResponse.BUSY, initial_invite)
+
+    async def accept(self):
+        """Accept an incoming call"""
+        if self.call_state != CallState.RINGING:
+            logger.warning("Cannot accept call - not in ringing state")
+            return
+
+        if self.call_response_future and not self.call_response_future.done():
+            self.call_response_future.set_result(CallResponse.ACCEPT)
+
+    async def busy(self):
+        """Mark the call as busy"""
+        if self.call_state != CallState.RINGING:
+            logger.warning("Cannot set call to busy - not in ringing state")
+            return
+
+        if self.call_response_future and not self.call_response_future.done():
+            self.call_response_future.set_result(CallResponse.BUSY)
+
+    async def reject(self):
+        """Reject an incoming call"""
+        if self.call_state != CallState.RINGING:
+            logger.warning("Cannot reject call - not in ringing state")
+            return
+
+        if self.call_response_future and not self.call_response_future.done():
+            self.call_response_future.set_result(CallResponse.REJECT)
+
+    async def _handle_call_response(self, response: CallResponse, msg: SipMessage):
+        if response == CallResponse.ACCEPT:
+            ok_response = self.ok_generator(msg, include_sdp=True)
+            await self.sip_core.send(ok_response)
+            # regiser the callback for when the call is ANSWERED
+            self._register_callback("state_changed_cb", self.on_call_answered)
+            self._register_callback("dtmf_callback", self._dtmf_handler.dtmf_callback)
+
+            self._is_call_ongoing = asyncio.Event()
+            await self.update_call_state(CallState.ANSWERED)
+            asyncio.create_task(self.call_handler.send_handler())
+
+        elif response == CallResponse.REJECT:
+            reject_response = self.generate_reject_response(msg)
+            await self.sip_core.send(reject_response)
+            await self.update_call_state(CallState.ENDED)
+            await self.stop("Call rejected")
+
+        elif response == CallResponse.BUSY:
+            busy_response = self.generate_busy_response(msg)
+            await self.sip_core.send(busy_response)
+            await self.update_call_state(CallState.BUSY)
+            await self.stop("Line busy")
 
     async def _cleanup_rtp(self):
         if not self._rtp_session:
@@ -313,9 +416,7 @@ class SipCall:
         msg = f"ACK sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
         msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={transaction.branch_id};alias\r\n"
         msg += "Max-Forwards: 70\r\n"
-        msg += (
-            f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
-        )
+        msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} ACK\r\n"
@@ -338,9 +439,7 @@ class SipCall:
         )
         msg += 'Reason: Q.850;cause=16;text="normal call clearing"'
         msg += "Max-Forwards: 70\r\n"
-        msg += (
-            f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
-        )
+        msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} BYE\r\n"
@@ -360,9 +459,7 @@ class SipCall:
         msg = f"REFER sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} sip/2.0\r\n"
         msg += f"Via: sip/2.0/{self.CTS} {ip}:{port};rport;branch={branch_id};alias\r\n"
         msg += "Max-Forwards: 70\r\n"
-        msg += (
-            f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
-        )
+        msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} REFER\r\n"
@@ -393,13 +490,30 @@ class SipCall:
 
         return msg
 
-    def ok_generator(self, data_parsed: SipMessage):
+    def ok_generator(self, data_parsed: SipMessage, include_sdp=False):
+        sdp = ""
+        if include_sdp:
+            sdp = SipMessage.generate_sdp(
+                self.sip_core.get_public_ip(),
+                random.choice(RTP_PORT_RANGE),
+                random.getrandbits(32),
+                CODECS,
+            )
+
         peer_ip, peer_port = self.sip_core.get_extra_info("peername")
         _, port = self.sip_core.get_extra_info("sockname")
 
-        if data_parsed.is_from_client(self.username):
+        if data_parsed.is_from_client(self.username):  # outgoing call
             from_header = f"From: <sip:{self.caller_id}@{self.server}>;tag={self.dialogue.local_tag}\r\n"
             to_header = f"To: <sip:{self.callee}@{self.server}>;tag={self.dialogue.remote_tag}\r\n"
+
+        elif include_sdp:  # incoming call
+            from_field, to_field = data_parsed.get_header(
+                "From"
+            ), data_parsed.get_header("To")
+            from_header = f"From: {from_field}\r\n"
+            to_header = f"To: {to_field};tag={self.dialogue.local_tag}\r\n"
+
         else:
             from_header = f"From: <sip:{self.callee}@{self.server}>;tag={self.dialogue.remote_tag}\r\n"
             to_header = f"To: <sip:{self.caller_id}@{self.server}>;tag={self.dialogue.local_tag}\r\n"
@@ -410,9 +524,65 @@ class SipCall:
         msg += to_header
         msg += f"Call-ID: {data_parsed.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
-        msg += f"Contact: <sip:{self.username}@{self.my_public_ip}:{port};transport={self.CTS.upper()};ob>\r\n"
+        msg += f"Contact: <sip:{self.username}@{self.my_public_ip};transport={self.CTS.upper()};ob>\r\n"
         msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
         msg += "Supported: replaces, timer\r\n"
+        msg += "Content-Type: application/sdp\r\n" if include_sdp else ""
+        msg += f"Content-Length: {len(sdp)}\r\n\r\n"
+        msg += sdp
+
+        return msg
+
+    def generate_trying_response(self, data_parsed: SipMessage) -> str:
+        msg = "SIP/2.0 100 Trying\r\n"
+        msg += "Via: " + data_parsed.get_header("Via") + "\r\n"
+        msg += f"From: {data_parsed.get_header('From')}\r\n"
+        msg += f"To: {data_parsed.get_header('To')}\r\n"  # No tag in Trying
+        msg += f"Call-ID: {data_parsed.call_id}\r\n"
+        msg += f"CSeq: {data_parsed.cseq} INVITE\r\n"
+        msg += "Content-Length: 0\r\n\r\n"
+        return msg
+
+    def generate_ringing_response(self, invite_message: SipMessage) -> str:
+        _, port = self.sip_core.get_extra_info("sockname")
+
+        msg = "SIP/2.0 180 Ringing\r\n"
+        msg += "Via: " + invite_message.get_header("Via") + "\r\n"
+        msg += f"From: {invite_message.get_header('From')}\r\n"
+        msg += (
+            f"To: <sip:{self.username}@{self.server}>;tag={self.dialogue.local_tag}\r\n"
+        )
+        msg += f"Call-ID: {invite_message.call_id}\r\n"
+        msg += f"CSeq: {invite_message.cseq} INVITE\r\n"
+        msg += f"Contact: <sip:{self.username}@{self.my_public_ip}:{port};transport={self.CTS}>\r\n"
+        msg += "Content-Length: 0\r\n\r\n"
+
+        return msg
+
+    def generate_reject_response(self, invite_message: SipMessage) -> str:
+        _, port = self.sip_core.get_extra_info("sockname")
+
+        msg = "SIP/2.0 603 Decline\r\n"
+        msg += "Via: " + invite_message.get_header("Via") + "\r\n"
+        msg += f"From: {invite_message.get_header('From')}\r\n"
+        msg += f"To: <sip:{self.username}@{self.server}>;tag={self.dialogue.local_tag}\r\n"
+        msg += f"Call-ID: {invite_message.call_id}\r\n"
+        msg += f"CSeq: {invite_message.cseq} INVITE\r\n"
+        msg += f"Contact: <sip:{self.username}@{self.my_public_ip}:{port};transport={self.CTS}>\r\n"
+        msg += "Content-Length: 0\r\n\r\n"
+
+        return msg
+
+    def generate_busy_response(self, invite_message: SipMessage) -> str:
+        _, port = self.sip_core.get_extra_info("sockname")
+
+        msg = "SIP/2.0 486 Busy Here\r\n"
+        msg += "Via: " + invite_message.get_header("Via") + "\r\n"
+        msg += f"From: {invite_message.get_header('From')}\r\n"
+        msg += f"To: <sip:{self.username}@{self.server}>;tag={self.dialogue.local_tag}\r\n"
+        msg += f"Call-ID: {invite_message.call_id}\r\n"
+        msg += f"CSeq: {invite_message.cseq} INVITE\r\n"
+        msg += f"Contact: <sip:{self.username}@{self.my_public_ip}:{port};transport={self.CTS}>\r\n"
         msg += "Content-Length: 0\r\n\r\n"
 
         return msg
@@ -426,7 +596,8 @@ class SipCall:
 
         if msg.status == SIPStatus(401) and msg.method == "INVITE":
             # Handling the auth of the invite
-            self.dialogue.remote_tag = msg.to_tag or ""
+            if not self.dialogue.remote_tag:
+                self.dialogue.remote_tag = msg.to_tag or ""
             transaction = self.dialogue.find_transaction(msg.branch)
             if not transaction:
                 return
@@ -442,9 +613,14 @@ class SipCall:
             self.dialogue.auth_retry_count += 1
             logger.log(logging.DEBUG, "Sent INVITE request to the server")
 
-        elif msg.status == SIPStatus(200) and msg.method == "INVITE":
+        elif (
+            msg.status == SIPStatus(200)
+            and msg.method == "INVITE"
+            and self.username not in msg.get_header("To")
+        ):
             # Handling successfull invite response
-            self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not set
+            if not self.dialogue.remote_tag:
+                self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not set
             logger.log(logging.DEBUG, "INVITE Successfull, dialog is established.")
             transaction = self.dialogue.add_transaction(
                 self.sip_core.gen_branch(), "ACK"
@@ -462,7 +638,8 @@ class SipCall:
                 CallState.RINGING if msg.status is SIPStatus(180) else CallState.DIALING
             )
             await self.update_call_state(st)
-            self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not already
+            if not self.dialogue.remote_tag:
+                self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not already
             self.dialogue.auth_retry_count = 0  # reset the auth counter
             pass
 
@@ -490,36 +667,37 @@ class SipCall:
 
         elif str(msg.status).startswith("2") and msg.method == "REFER":
             SIPTransferResult = namedtuple("SIPTransferResult", ["code", "description"])
-            if not self._refer_future.done():
+            if self._refer_future and not self._refer_future.done():
                 description = "Success"
                 self._refer_future.set_result(
                     SIPTransferResult(int(msg.status or 0), description)
                 )
 
         elif str(msg.status).startswith(("4", "5", "6")) and msg.method == "REFER":
-            if not self._refer_future.done():
+            if self._refer_future and not self._refer_future.done():
                 description = (
                     "Client Error"
                     if str(msg.status).startswith("4")
                     else "Server Error"
                 )
-        
+
                 self._refer_future.set_exception(
                     SIPTransferException(int(msg.status or -1), description)
                 )
 
         elif str(msg.data).startswith("NOTIFY"):
             if msg.body_data:
-                _data = msg.body_data.split(' ')
+                _data = msg.body_data.split(" ")
                 logger.log(
-                    logging.DEBUG, "Transfer status: %s",
-                    ' '.join(_data[2:]).replace('\r\n', '')
+                    logging.DEBUG,
+                    "Transfer status: %s",
+                    " ".join(_data[2:]).replace("\r\n", ""),
                 )
                 for _cb in self._get_callbacks("transfer_cb"):
                     await _cb(SIPStatus(int(_data[1])))
 
             message = self.ok_generator(msg)
-            await self.sip_core.send(message) 
+            await self.sip_core.send(message)
 
         # Finally update status and fire events
         self.dialogue.update_state(msg)
@@ -527,7 +705,7 @@ class SipCall:
     async def error_handler(self, msg: SipMessage):
         if not msg.status:
             return
-        
+
         if not self.dialogue.remote_tag:
             self.dialogue.remote_tag = msg.to_tag or ""
 
@@ -713,7 +891,7 @@ class SipCall:
             except asyncio.QueueEmpty:
                 break
         return bytes(audio_bytes)
-    
+
     def get_recorded_audio(self, filename: Optional[str] = None, format="wav"):
         loop = asyncio.get_event_loop()
         loop.run_in_executor(None, self.__get_recorded_audio, filename, format)
@@ -729,7 +907,7 @@ class SipCall:
         if self.__recorded_audio_bytes is None:
             self.__recorded_audio_bytes = self.process_recorded_audio()
 
-        filename = f'call_{self.call_id}.wav' if not filename else filename
+        filename = f"call_{self.call_id}.wav" if not filename else filename
         with wave.open(filename, "wb") as f:
             f.setsampwidth(2)
             f.setframerate(8000)

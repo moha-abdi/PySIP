@@ -46,9 +46,7 @@ class CodecInfo(Enum):
             return int(self.value)
         except ValueError:
             pass
-        raise Exception(
-            self.description + " is a dynamically assigned payload"
-        )
+        raise Exception(self.description + " is a dynamically assigned payload")
 
     def __str__(self) -> str:
         if isinstance(self.value, int):
@@ -68,6 +66,7 @@ class CodecInfo(Enum):
     L16 = 11, 44100, 1, "L16"
     QCELP = 12, 8000, 1, "QCELP"
     CN = 13, 8000, 1, "CN"
+    OPUS = 107, 48000, 2, "opus"
     # MPA channel varries, should be defined in the RTP packet.
     MPA = 14, 90000, 0, "MPA"
     G728 = 15, 8000, 1, "G728"
