@@ -15,42 +15,42 @@
     <th style="text-align: left; padding: 10px 0;">Description</th>
   </tr>
   <tr>
-    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+    <td style="padding: 10px; font-weight: bold;">
       Complete SIP Account Management
     </td>
-    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+    <td style="padding: 10px; border-radius: 0 6px 6px 0;">
       Easily create, register, and manage SIP accounts.
     </td>
   </tr>
   <tr>
-    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+    <td style="padding: 10px; font-weight: bold;">
       Custom Call Flows
     </td>
-    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+    <td style="padding: 10px; border-radius: 0 6px 6px 0;">
       Write scripts to automate call flows with your own business logic.
     </td>
   </tr> 
   <tr>
-    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+    <td style="padding: 10px; font-weight: bold;">
       UDP Transport Layer
     </td>
-    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+    <td style="padding: 10px; border-radius: 0 6px 6px 0;">
       Asynchronous, efficient UDP transport for sending and receiving SIP messages.
     </td>
   </tr>
   <tr>
-    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+    <td style="padding: 10px; font-weight: bold;">
       Flexible Call Handling
     </td>
-    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+    <td style="padding: 10px; border-radius: 0 6px 6px 0;">
       Handle incoming and outgoing SIP calls, play messages, and gather user input.
     </td>
   </tr>
   <tr>
-    <td style="padding: 10px; background-color: #f6f8fa; font-weight: bold;">
+    <td style="padding: 10px; font-weight: bold;">
       Fully Extensible
     </td>
-    <td style="padding: 10px; background-color: #f6f8fa; border-radius: 0 6px 6px 0;">
+    <td style="padding: 10px; border-radius: 0 6px 6px 0;">
       Includes an example bot for appointment booking, but you can easily write any SIP-based automation you need.
     </td>
   </tr>
@@ -73,16 +73,27 @@
 
 ## 🚀 **Installation**
 
-<div style="background-color: #f6f8fa; border-radius: 6px; padding: 16px;">
+### Option 1: Install from PyPI
 
-### Step 1: Clone the repository
+You can install PySIP directly from PyPI using pip:
+
+```bash
+pip install PySIPio
+```
+
+> [!CAUTION]
+> Note that the package name on PyPI is `PySIPio` and not `PySIP`
+
+### Option 2: Install from source
+
+#### Step 1: Clone the repository
 
 ```bash
 git clone https://github.com/moha-abdi/PySIP.git
 cd PySIP
 ```
 
-### Step 2: Install dependencies
+#### Step 2: Install dependencies
 
 Ensure you have Python 3.8+ installed. Install the required dependencies using:
 
@@ -90,25 +101,12 @@ Ensure you have Python 3.8+ installed. Install the required dependencies using:
 pip install -r requirements.txt
 ```
 
-### Step 3: Environment Setup
-
-Create a `.env` file to store your SIP account credentials and server details:
-
-```bash
-SIP_USERNAME=your_sip_username
-SIP_PASSWORD=your_sip_password
-SIP_SERVER=your_sip_server
-```
-
-</div>
-
 ---
 
 ## 📁 **Project Structure**
 
 The project is structured to provide a clean separation between the core SIP library and any custom scripts you want to write. Here's an overview of the project layout:
 
-<div style="background-color: #f6f8fa; border-radius: 6px; padding: 16px;">
 
 ```
 PySIP/
@@ -127,15 +125,21 @@ PySIP/
 └── README.md                   # Project documentation
 ```
 
-</div>
-
 ---
 
 ## 🏁 **Getting Started**
 
-<div style="background-color: #f6f8fa; border-radius: 6px; padding: 16px;">
+### Step 1: Environment Setup
 
-### Step 1: Setting Up a SIP Account
+Create a `.env` file in your working directory to store your SIP account credentials and server details:
+
+```bash
+SIP_USERNAME=your_sip_username
+SIP_PASSWORD=your_sip_password
+SIP_SERVER=your_sip_server
+```
+
+### Step 2: Setting Up a SIP Account
 
 A SIP account is essential for handling calls. To start, you need to create an instance of the `SipAccount` class, which requires your SIP credentials (username, password, and server). Here's how to do it:
 
@@ -154,7 +158,7 @@ account = SipAccount(
 )
 ```
 
-### Step 2: Registering the Account
+### Step 3: Registering the Account
 
 Once the `SipAccount` is created, the next step is to register it with the SIP server:
 
@@ -164,15 +168,11 @@ await account.register()
 
 This sends a SIP `REGISTER` request to the server to activate the account. Once registered, you can make calls or listen for incoming calls.
 
-</div>
-
 ---
 
 ## 📘 **Detailed Usage**
 
 ### SIP Account
-
-<div style="background-color: #f6f8fa; border-radius: 6px; padding: 16px;">
 
 The `SipAccount` class is at the core of PySIP. It handles all account-related tasks such as registration, making calls, and unregistering from the SIP server.
 
@@ -218,11 +218,7 @@ When you're done, unregister the account to gracefully close the session:
 await account.unregister()
 ```
 
-</div>
-
 ### Call Handling
-
-<div style="background-color: #f6f8fa; border-radius: 6px; padding: 16px;">
 
 The `CallHandler` is responsible for handling the call flow. It allows you to say messages, gather input from the caller, or transfer the call.
 
@@ -258,11 +254,8 @@ await call.reject()  # Reject the incoming call
 await call.busy()    # Mark the line as busy for the incoming call
 ```
 
-</div>
-
 ### UDP Transport
 
-<div style="background-color: #f6f8fa; border-radius: 6px; padding: 16px;">
 
 The `UdpHandler` is an internal module that manages the asynchronous sending and receiving of SIP messages over the network.
 
@@ -282,7 +275,6 @@ The `datagram_received()` method handles incoming messages, placing them in a qu
 self.data_q.put_nowait(data)
 ```
 
-</div>
 
 ---
 
@@ -290,7 +282,6 @@ self.data_q.put_nowait(data)
 
 To demonstrate PySIP in action, we've provided a basic example of an appointment booking bot. This bot allows callers to book appointments via a phone call.
 
-<div style="background-color: #f6f8fa; border-radius: 6px; padding: 16px;">
 
 ```python
 import asyncio
@@ -311,7 +302,7 @@ account = SipAccount(
 
 @account.on_incoming_call
 async def handle_incoming_call(call: SipCall):
-    await call.accept() 
+    await call.accept()
     await call.call_handler.say("We have received your call successfully")
 
 async def main():
@@ -333,7 +324,6 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-</div>
 
 ---
 
@@ -355,6 +345,4 @@ Contributions are welcome! If you would like to contribute to the development of
 
 ---
 
-<div style="text-align: center; align: center; margin-top: 30px;" align="center">
-  <p align="center">Made with ❤️ by Moha Abdi</p>
-</div>
+<p align="center">Made with ❤️ by Moha Abdi</p>
