@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "PySIPio"
-version = "1.7.0"
+version = "1.8.0"
 description = "Python SIP Library for Custom VoIP Solutions"
 authors = [{name = "Moha Abdi", email = "mohaa6052@gmail.com"}]
 license = {text = "MIT"}
