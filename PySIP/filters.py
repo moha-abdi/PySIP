@@ -2,19 +2,31 @@ from enum import IntEnum, Enum
 from typing import Any
 
 __all__ = [
-    'SIPCompatibleMethods',
-    'SIPCompatibleVersions',
-    'SIPMessageType',
-    'Filter',
-    'MethodFilter',
-    'TypeFilter',
-    'SipFilter',
-    'SIPStatus', 
+    "SIPCompatibleMethods",
+    "SIPCompatibleVersions",
+    "SIPMessageType",
+    "Filter",
+    "MethodFilter",
+    "TypeFilter",
+    "SipFilter",
+    "SIPStatus",
 ]
 
-SIPCompatibleMethods = ["INVITE", "ACK", "BYE", "CANCEL", "UPDATE",
-                        "INFO", "SUBSCRIBE", "NOTIFY", "REFER", "MESSAGE", "OPTIONS"]
+SIPCompatibleMethods = [
+    "INVITE",
+    "ACK",
+    "BYE",
+    "CANCEL",
+    "UPDATE",
+    "INFO",
+    "SUBSCRIBE",
+    "NOTIFY",
+    "REFER",
+    "MESSAGE",
+    "OPTIONS",
+]
 SIPCompatibleVersions = ["SIP/2.0"]
+
 
 class SIPMessageType(IntEnum):
     def __new__(cls, value: int):
@@ -27,10 +39,10 @@ class SIPMessageType(IntEnum):
 
 
 class ConnectionType(Enum):
-    TCP = 'TCP'
-    UDP = 'UDP'
-    TLS = 'TLS'
-    TLSv1 = 'TLSv1'
+    TCP = "TCP"
+    UDP = "UDP"
+    TLS = "TLS"
+    TLSv1 = "TLSv1"
 
     def __str__(self) -> str:
         return self._value_
@@ -38,7 +50,7 @@ class ConnectionType(Enum):
 
 class CallState(Enum):
     INITIALIZING = "INITIALIZING"
-    DAILING = "DIALING"
+    DIALING = "DIALING"
     RINGING = "RINGING"
     ANSWERED = "ANSWERED"
     ENDED = "ENDED"
@@ -60,6 +72,7 @@ class Filter:
         new_filter.conditions = self.conditions + ["and"] + other.conditions
         return new_filter
 
+
 class MethodFilter(Filter):
     def __init__(self, method):
         super().__init__()
@@ -67,6 +80,7 @@ class MethodFilter(Filter):
 
     def __call__(self, msg) -> bool:
         return msg.method == self.method
+
 
 class TypeFilter(Filter):
     def __init__(self, type_):
@@ -76,6 +90,7 @@ class TypeFilter(Filter):
     def __call__(self, msg) -> Any:
         return msg.type == self.type_
 
+
 class CallIdFilter(Filter):
     def __init__(self, call_id):
         super().__init__()
@@ -84,49 +99,50 @@ class CallIdFilter(Filter):
     def __call__(self, msg):
         return msg.call_id == self.call_id
 
+
 class SipFilter:
     """Filter received :obj:`SipMessage``s"""
 
-    INVITE: 'SipFilter' = MethodFilter('INVITE')
+    INVITE: "SipFilter" = MethodFilter("INVITE")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Invite."""
-    REGISTER: 'SipFilter' = MethodFilter('REGISTER')
+    REGISTER: "SipFilter" = MethodFilter("REGISTER")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Register."""
-    REINVITE: 'SipFilter' = MethodFilter('REINVITE')
+    REINVITE: "SipFilter" = MethodFilter("REINVITE")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Re-invite."""
-    REREGISTER: 'SipFilter' = MethodFilter('REREGISTER')
+    REREGISTER: "SipFilter" = MethodFilter("REREGISTER")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Re-register."""
-    ACK: 'SipFilter' = MethodFilter('ACK')
+    ACK: "SipFilter" = MethodFilter("ACK")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Ack."""
-    REFER: 'SipFilter' = MethodFilter('REFER')
+    REFER: "SipFilter" = MethodFilter("REFER")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Refer."""
-    NOTIFY: 'SipFilter' = MethodFilter('NOTIFY')
+    NOTIFY: "SipFilter" = MethodFilter("NOTIFY")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Notify."""
-    OK: 'SipFilter' = MethodFilter('OK')
+    OK: "SipFilter" = MethodFilter("OK")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Ok."""
-    OPTIONS: 'SipFilter' = MethodFilter('OPTIONS')
+    OPTIONS: "SipFilter" = MethodFilter("OPTIONS")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Options."""
-    BYE: 'SipFilter' = MethodFilter('BYE')
+    BYE: "SipFilter" = MethodFilter("BYE")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Bye."""
-    CANCEL: 'SipFilter' = MethodFilter('CANCEL')
+    CANCEL: "SipFilter" = MethodFilter("CANCEL")
     """This puts a filter that only filters the
     :attr:`SipMessage.method` which returns Cancel."""
-    RESPONSE: 'SipFilter' = TypeFilter(SIPMessageType.RESPONSE)
+    RESPONSE: "SipFilter" = TypeFilter(SIPMessageType.RESPONSE)
     """This filters out only the messages that are from the server.
     from :meth:`Client.receive`"""
-    REQUEST: 'SipFilter' = TypeFilter(SIPMessageType.MESSAGE)
+    REQUEST: "SipFilter" = TypeFilter(SIPMessageType.MESSAGE)
     """This filters out only the messages that are sent out to
     the server through :meth:`Client.send`"""
-    CALL_ID: 'SipFilter' = lambda callid: CallIdFilter(callid)
+    CALL_ID: "SipFilter" = lambda callid: CallIdFilter(callid)
 
 
 class SIPStatus(Enum):
@@ -174,8 +190,7 @@ class SIPStatus(Enum):
     RINGING = (
         180,
         "Ringing",
-        "Destination user agent received INVITE, "
-        + "and is alerting user of call",
+        "Destination user agent received INVITE, " + "and is alerting user of call",
     )
     FORWARDED = 181, "Call is Being Forwarded"
     QUEUED = 182, "Queued"
@@ -214,8 +229,7 @@ class SIPStatus(Enum):
     USE_PROXY = (
         305,
         "Use Proxy",
-        "You must use proxy specified in Location to "
-        + "access this resource",
+        "You must use proxy specified in Location to " + "access this resource",
     )
     ALTERNATE_SERVICE = (
         380,
@@ -316,8 +330,7 @@ class SIPStatus(Enum):
     USE_IDENTITY_HEADER = (
         428,
         "Use Identity Header",
-        "The server requires an Identity header, "
-        + "and one has not been provided.",
+        "The server requires an Identity header, " + "and one has not been provided.",
     )
     PROVIDE_REFERRER_IDENTITY = 429, "Provide Referrer Identity"
     """
@@ -398,4 +411,3 @@ class SIPStatus(Enum):
     GLOBAL_NOT_ACCEPTABLE = 606, "Not Acceptable"
     UNWANTED = 607, "Unwanted"
     REJECTED = 608, "Rejected"
-

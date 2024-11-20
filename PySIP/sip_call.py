@@ -48,7 +48,7 @@ class SipCall:
         *,
         connection_type: Literal["TCP", "UDP", "TLS", "TLSv1"] = "UDP",
         caller_id: str = "",
-        sip_core = None
+        sip_core=None,
     ) -> None:
         self.username = username
         self.caller_id = username if not caller_id else caller_id
@@ -59,7 +59,11 @@ class SipCall:
         self.password = password
         self.callee = callee
         self.__sip_core = sip_core
-        self.sip_core = sip_core if sip_core is not None else SipCore(self.username, route, connection_type, password)
+        self.sip_core = (
+            sip_core
+            if sip_core is not None
+            else SipCore(self.username, route, connection_type, password)
+        )
         self.sip_core.on_message_callbacks.append(self.message_handler)
         self.sip_core.on_message_callbacks.append(self.error_handler)
         self._callbacks: Dict[str, List[Callable]] = {}
@@ -87,8 +91,10 @@ class SipCall:
             self.my_private_ip = await asyncio.to_thread(self.sip_core.get_local_ip)
             self.setup_local_session()
             self.dialogue.username = self.username
-            if (not self.sip_core.is_running.is_set() 
-                and not self.sip_core._is_connecting.is_set()):
+            if (
+                not self.sip_core.is_running.is_set()
+                and not self.sip_core._is_connecting.is_set()
+            ):
                 # only connect if it is not already connected
                 await self.sip_core.connect()
 
@@ -189,7 +195,7 @@ class SipCall:
         elif self.dialogue.state == DialogState.TERMINATED:
             if self.__sip_core is None:
                 self.sip_core.is_running.clear()
-                await self.sip_core.close_connections() 
+                await self.sip_core.close_connections()
 
         # finally notify the callbacks
         for cb in self._get_callbacks("hanged_up_cb"):
@@ -307,7 +313,7 @@ class SipCall:
         if auth_header:
             msg += auth_header
 
-        body = str(self.dialogue.local_session_info) 
+        body = str(self.dialogue.local_session_info)
         msg += f"Content-Length: {len(body.encode())}\r\n\r\n{body}"
 
         return msg
@@ -319,9 +325,7 @@ class SipCall:
         msg = f"ACK sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
         msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={transaction.branch_id};alias\r\n"
         msg += "Max-Forwards: 70\r\n"
-        msg += (
-            f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
-        )
+        msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} ACK\r\n"
@@ -344,9 +348,7 @@ class SipCall:
         )
         msg += 'Reason: Q.850;cause=16;text="normal call clearing"'
         msg += "Max-Forwards: 70\r\n"
-        msg += (
-            f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
-        )
+        msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} BYE\r\n"
@@ -366,9 +368,7 @@ class SipCall:
         msg = f"REFER sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} sip/2.0\r\n"
         msg += f"Via: sip/2.0/{self.CTS} {ip}:{port};rport;branch={branch_id};alias\r\n"
         msg += "Max-Forwards: 70\r\n"
-        msg += (
-            f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
-        )
+        msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} REFER\r\n"
@@ -509,23 +509,24 @@ class SipCall:
                     if str(msg.status).startswith("4")
                     else "Server Error"
                 )
-        
+
                 self._refer_future.set_exception(
                     SIPTransferException(int(msg.status or -1), description)
                 )
 
         elif str(msg.data).startswith("NOTIFY"):
             if msg.body_data:
-                _data = msg.body_data.split(' ')
+                _data = msg.body_data.split(" ")
                 logger.log(
-                    logging.DEBUG, "Transfer status: %s",
-                    ' '.join(_data[2:]).replace('\r\n', '')
+                    logging.DEBUG,
+                    "Transfer status: %s",
+                    " ".join(_data[2:]).replace("\r\n", ""),
                 )
                 for _cb in self._get_callbacks("transfer_cb"):
                     await _cb(SIPStatus(int(_data[1])))
 
             message = self.ok_generator(msg)
-            await self.sip_core.send(message) 
+            await self.sip_core.send(message)
 
         # Finally update status and fire events
         self.dialogue.update_state(msg)
@@ -533,7 +534,7 @@ class SipCall:
     async def error_handler(self, msg: SipMessage):
         if not msg.status:
             return
-        
+
         if not self.dialogue.remote_tag:
             self.dialogue.remote_tag = msg.to_tag or ""
 
@@ -720,7 +721,7 @@ class SipCall:
             except asyncio.QueueEmpty:
                 break
         return bytes(audio_bytes)
-    
+
     def get_recorded_audio(self, filename: Optional[str] = None, format="wav"):
         loop = asyncio.get_event_loop()
         loop.run_in_executor(None, self.__get_recorded_audio, filename, format)
@@ -736,7 +737,7 @@ class SipCall:
         if self.__recorded_audio_bytes is None:
             self.__recorded_audio_bytes = self.process_recorded_audio()
 
-        filename = f'call_{self.call_id}.wav' if not filename else filename
+        filename = f"call_{self.call_id}.wav" if not filename else filename
         with wave.open(filename, "wb") as f:
             f.setsampwidth(2)
             f.setframerate(8000)

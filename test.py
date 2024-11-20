@@ -1,11 +1,14 @@
 import asyncio
 from PySIP.sip_account import SipAccount
-from scripts.banks_otp import bank_script
-from scripts.instagram_otp import instagram_script
-from scripts.snapchat_otp_so import snapchat_script
+from scripts.appointment_booking_bot import appointment_booking_bot
 
 # account = SipAccount('michel2', 'pass1234', '109.207.170.23:5060', connection_type='UDP', caller_id='18006566561')
-account = SipAccount('12035473096', 'etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==', 'talk.waafi.com:2382', connection_type='TLSv1')
+account = SipAccount(
+    "12035473096",
+    "etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbGTt7pCXLG7esa8A5pa5/8DY2dDH2LXtKsIyc1pE1YfuA==",
+    "talk.waafi.com:2382",
+    connection_type="TLSv1",
+)
 
 # call = account.make_call('12045148765')
 # print(call)
@@ -13,14 +16,11 @@ account = SipAccount('12035473096', 'etAywogjnDHPUbfoUY2tovgQ2ekZZM93/LBeO1B9dbG
 
 async def main():
     await account.register()
-    
-    call = account.make_call('252636321503')
+
+    call = account.make_call("33650691262")
     call_task = asyncio.create_task(call.start())
 
-    await snapchat_script(
-        call.call_handler,
-        victim_name="Muna"
-    )
+    await appointment_booking_bot(call.call_handler, customer_name="Muna")
 
     await call_task
     call.get_recorded_audio()
