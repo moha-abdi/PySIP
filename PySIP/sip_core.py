@@ -208,7 +208,7 @@ class SipCore:
 
             elif self.connection_type == ConnectionType.TLSv1:
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
-                ssl_context.set_ciphers("AES128-SHA")
+                ssl_context.set_ciphers("DEFAULT@SECLEVEL=1")
                 if SAVE_TLS_KEYLOG:
                     ssl_context.keylog_filename = "tls_keylog.log"
                 self.reader, self.writer = await asyncio.open_connection(

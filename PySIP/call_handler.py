@@ -82,7 +82,7 @@ class CallHandler:
         self, length: int = 1, timeout: float = 7.0, finish_on_key=None, stream=None
     ):
         """This method gathers a dtmf tone with the specified
-        length and then returns when done"""
+        length and then returns when done""" 
         if self.call._is_call_stopped:
             raise RuntimeError("Call is no longer ongoing")
 
@@ -141,7 +141,10 @@ class CallHandler:
                 await stream_id.wait_finished()
                 continue
 
-        text = loop_msg or f"You failed to enter the key in {loop} tries."
+        text = (
+            loop_msg
+            or f"You failed to enter the key in {loop} tries."
+        )
         stream = await self.say(text)
         await stream.wait_finished()
 
@@ -149,7 +152,7 @@ class CallHandler:
 
     async def gather_and_play(
         self,
-        file_name: str,
+        file_name: str | None = None,
         format: str = "wav",
         codec: str | None = None,
         length: int = 1,
@@ -166,7 +169,7 @@ class CallHandler:
             try:
                 stream = None
                 if file_name is not None:
-                    stream = await self.play(file_name, format, codec)
+                    stream = await self.play(file_name, format)
                 dtmf_result = await self.gather(
                     length=length,
                     timeout=delay,
@@ -190,7 +193,8 @@ class CallHandler:
             stream = await self.say(
                 f"You failed to enter the key in {loop} tries. Hanging up the call"
             )
-        await stream.wait_finished()
+        if stream is not None:
+            await stream.wait_finished()
 
         return dtmf_result
 
