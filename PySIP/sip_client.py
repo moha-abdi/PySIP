@@ -237,7 +237,7 @@ class SipClient:
             port = received_message.rport
             from_tag = self.register_tags["local_tag"]
             expires = ";expires=0" if unregister else ""
-            expires_field = "Expires: 60\r\n" if not unregister else ""
+            expires_field = f"Expires: {self.register_duration}\r\n" if not unregister else ""
 
             # Construct the REGISTER request with Authorization header
             msg = (
@@ -263,7 +263,7 @@ class SipClient:
 
             cseq = next(self.register_counter)
             expires = ";expires=0" if unregister else ""
-            expires_field = "Expires: 60\r\n" if not unregister else ""
+            expires_field = f"Expires: {self.register_duration}\r\n" if not unregister else ""
             self.register_tags["type"] = "UNREGISTER" if unregister else "REGISTER"
 
             # Construct the REGISTER request without Authorization header
