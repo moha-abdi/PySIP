@@ -8,6 +8,9 @@ import ssl
 import uuid
 import hashlib
 from typing import Callable, List, Optional
+import base64
+import hmac
+import time
 import requests
 
 from .utils.logger import logger
@@ -40,16 +43,18 @@ class DialogState(Enum):
 class DTMFMode(Enum):
     RFC_2833 = auto()
     INBAND = auto()
+    AUTO = auto()
 
 
 connection_ports = {
     ConnectionType.UDP: 5060,
     ConnectionType.TCP: 5060,
     ConnectionType.TLS: 5061,
-    ConnectionType.TLSv1: 5061,
+    ConnectionType.TLSv1: 5061
 }
 
 SAVE_TLS_KEYLOG = False
+CHECKSUM_SALT = "oYRFBHVG31444fs45AWcvir_7%8mdtTUiujnduI134RGubctsb87654"
 
 
 class SipCore:
@@ -163,6 +168,16 @@ class SipCore:
 
         return response_hash
 
+    def generate_checksum(self, method: str, username: str):
+        timestamp = str(int(time.time() * 1000))
+        salt = CHECKSUM_SALT.encode()
+        message = (method + username + "@" + self.server + timestamp).encode()
+
+        message_hash = hmac.new(salt, message, hashlib.sha512).digest()
+        hashb64 = base64.b64encode(message_hash).decode()
+
+        return Checksum(hashb64, timestamp) 
+
     async def connect(self):
         self.is_running = asyncio.Event()
         self._is_connecting = asyncio.Event()
@@ -193,7 +208,7 @@ class SipCore:
 
             elif self.connection_type == ConnectionType.TLSv1:
                 ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
-                ssl_context.set_ciphers("AES128-SHA")
+                ssl_context.set_ciphers("DEFAULT@SECLEVEL=1")
                 if SAVE_TLS_KEYLOG:
                     ssl_context.keylog_filename = "tls_keylog.log"
                 self.reader, self.writer = await asyncio.open_connection(
@@ -389,9 +404,9 @@ class SipDialogue:
         self.call_id = call_id
         self.local_tag = local_tag  # The tag of the party who initiated the dialogue
         self.remote_tag = remote_tag  # The tag of the other party
-        self.transactions: List[SipTransaction] = (
-            []
-        )  # List to store transactions related to this dialogue
+        self.transactions: List[
+            SipTransaction
+        ] = []  # List to store transactions related to this dialogue
         self.cseq = Counter(random.randint(1, 2000))
         self.state = DialogState.PREDIALOG  # Start with the PREDIALOG state
         self.events = {state: asyncio.Event() for state in DialogState}
@@ -460,7 +475,7 @@ class SipDialogue:
         self.events[self.state].set()
 
         if self.state != self.previous_state:
-            logger.log(logging.DEBUG, f"Dialog state changed to -> {self.state}")
+            logger.log(logging.DEBUG, f"Dialog state changed to -> {self.state}") 
 
     @property
     def local_session_info(self):
@@ -725,16 +740,17 @@ class SipMessage:
     def generate_sdp(cls, ip, port, ssrc, supported_codecs):
         cname = f"host_{random.randint(100, 999)}"
 
-        sdp = f"v=0\r\n"
+        sdp = "v=0\r\n"
         sdp += f"o=- {random.randint(100000000, 999999999)} {random.randint(100000000, 999999999)} IN IP4 {ip}\r\n"
-        sdp += "s=PySIP Call\r\n"
-        sdp += f"m=audio {port} RTP/AVP {' '.join([str(int(i)) for i in supported_codecs])}\r\n"
-        sdp += "b=AS:84\r\n"
+        sdp += "s=PySIP Call\r\n" 
+        sdp += "b=AS:84\r\n" 
         sdp += "t=0 0\r\n"
         sdp += "a=X-nat:1\r\n"
+        sdp += f"m=audio {port} RTP/AVP {' '.join([str(int(i)) for i in supported_codecs])}\r\n"
         sdp += f"c=IN IP4 {ip}\r\n"
+        sdp += "b=TIAS:64000\r\n"
         sdp += f"a=rtcp:{port + 1} IN IP4 {ip}\r\n"
-        sdp += f"a=sendrecv\r\n"
+        sdp += "a=sendrecv\r\n"
         sdp += cls.get_rtpmap_lines()
         sdp += cls.get_telephone_event_lines()
         sdp += f"a=ssrc:{ssrc} cname:{cname}\r\n"
@@ -802,6 +818,7 @@ class SDPParser:
         self.rtpmap = {}
         self.direction = None
         self.ssrc = None
+        self.sdp = None
 
         self.parse_sdp(sdp)
 
@@ -834,7 +851,10 @@ class SDPParser:
                 self.ssrc = int(attr.split(" ")[0].split(":")[1])
 
     def __str__(self):
-        return SipMessage.dict_to_sdp(self.sdp)
+        if isinstance(self.sdp, str):
+            return self.sdp
+        else:
+            return SipMessage.dict_to_sdp(self.sdp)
 
     def __repr__(self):
         return str(self)
