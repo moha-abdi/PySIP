@@ -94,7 +94,6 @@ class SipClient:
 
             try:
                 self.all_tasks.extend(tasks)
-                self.registered.set()
                 await asyncio.gather(*tasks)
             except asyncio.CancelledError:
                 if receive_task.done():
@@ -340,7 +339,7 @@ class SipClient:
 
         await asyncio.sleep(0.001)
         if msg.status == SIPStatus(401) and msg.method == "REGISTER":
-            # This is the case when we have to send a retegister
+            # This is the case when we have to send a re-register
             await self.reregister(True, msg)
             logger.log(logging.DEBUG, "Register message has been sent to the server")
 
@@ -352,6 +351,9 @@ class SipClient:
             if self.register_tags["type"] == "UNREGISTER":
                 if msg.cseq == self.register_tags["cseq"]:
                     self.unregistered.set()
+
+            else:
+                self.registered.set()
 
         elif msg.data.startswith(
             "OPTIONS"
