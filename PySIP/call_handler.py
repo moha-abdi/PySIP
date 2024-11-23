@@ -21,9 +21,7 @@ class CallHandler:
 
     async def say(self, text: str):
         try:
-            _audio_task = asyncio.create_task(
-                generate_audio(text, self.voice)
-            )
+            _audio_task = asyncio.create_task(generate_audio(text, self.voice))
             app_stopped_task = asyncio.create_task(self.call._wait_stopped())
 
             # Wait for either audio processing task to complete or the application to stop
@@ -61,12 +59,12 @@ class CallHandler:
             logger.log(logging.ERROR, str(e))
             raise e
 
-    async def play(self, file_name: str, format: str = "wav"):
+    async def play(self, file_name: str, format: str = "wav", codec: str | None = None):
         """Simple method to play an audio in call"""
         temp_file = io.BytesIO()
         try:
             decoded_chunk: AudioSegment = AudioSegment.from_file(
-                file_name, format=format
+                file_name, format=format, codec=codec
             )
         except Exception as e:
             raise e
@@ -84,7 +82,7 @@ class CallHandler:
         self, length: int = 1, timeout: float = 7.0, finish_on_key=None, stream=None
     ):
         """This method gathers a dtmf tone with the specified
-        length and then returns when done""" 
+        length and then returns when done"""
         if self.call._is_call_stopped:
             raise RuntimeError("Call is no longer ongoing")
 
@@ -143,10 +141,7 @@ class CallHandler:
                 await stream_id.wait_finished()
                 continue
 
-        text = (
-            loop_msg
-            or f"You failed to enter the key in {loop} tries."
-        )
+        text = loop_msg or f"You failed to enter the key in {loop} tries."
         stream = await self.say(text)
         await stream.wait_finished()
 
@@ -156,6 +151,7 @@ class CallHandler:
         self,
         file_name: str,
         format: str = "wav",
+        codec: str | None = None,
         length: int = 1,
         delay: int = 7,
         loop: int = 3,
@@ -168,7 +164,9 @@ class CallHandler:
         dtmf_result = None
         for _ in range(loop):
             try:
-                stream = await self.play(file_name, format)
+                stream = None
+                if file_name is not None:
+                    stream = await self.play(file_name, format, codec)
                 dtmf_result = await self.gather(
                     length=length,
                     timeout=delay,
@@ -181,13 +179,13 @@ class CallHandler:
 
             except asyncio.TimeoutError:
                 if delay_audio_file:
-                    await self.play(delay_audio_file, format=format)
+                    await self.play(delay_audio_file, format=format, codec=codec)
                 else:
                     await self.say("You did not any keys please try again")
                 continue
 
         if loop_audio_file:
-            stream = await self.play(loop_audio_file, format=format)
+            stream = await self.play(loop_audio_file, format=format, codec=codec)
         else:
             stream = await self.say(
                 f"You failed to enter the key in {loop} tries. Hanging up the call"
@@ -263,7 +261,11 @@ class CallHandler:
                 if self.call._is_call_stopped:
                     break  # Exit the loop if the call is not running
 
-                if self.call.call_state in [CallState.ENDED, CallState.FAILED, CallState.BUSY]:
+                if self.call.call_state in [
+                    CallState.ENDED,
+                    CallState.FAILED,
+                    CallState.BUSY,
+                ]:
                     break
 
                 if self.call.call_state is not CallState.ANSWERED:
@@ -311,14 +313,21 @@ class CallHandler:
                                 )
                                 awaitable = self.previous_stream.stream_done_future
 
-                            dtmf_task = asyncio.create_task(wait_for(
-                                self.call._dtmf_handler.get_dtmf(length, finish_on_key),
-                                timeout,
-                                awaitable,
-                            ))
-                            app_stopped_task = asyncio.create_task(self.call._wait_stopped())
+                            dtmf_task = asyncio.create_task(
+                                wait_for(
+                                    self.call._dtmf_handler.get_dtmf(
+                                        length, finish_on_key
+                                    ),
+                                    timeout,
+                                    awaitable,
+                                )
+                            )
+                            app_stopped_task = asyncio.create_task(
+                                self.call._wait_stopped()
+                            )
                             done, pending = await asyncio.wait(
-                                [dtmf_task, app_stopped_task], return_when=asyncio.FIRST_COMPLETED
+                                [dtmf_task, app_stopped_task],
+                                return_when=asyncio.FIRST_COMPLETED,
                             )
                             if dtmf_task in done:
                                 app_stopped_task.cancel()
@@ -361,7 +370,7 @@ class CallHandler:
 
             if self.previous_stream:
                 self.previous_stream.stream_done()
-                
+
             logger.log(logging.DEBUG, "The call handler has been stopped")
         except asyncio.CancelledError:
             logger.log(logging.DEBUG, "The send handler task has been cancelled")

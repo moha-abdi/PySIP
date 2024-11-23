@@ -745,10 +745,10 @@ class SipMessage:
         sdp += "s=PySIP Call\r\n" 
         sdp += "b=AS:84\r\n" 
         sdp += "t=0 0\r\n"
-        sdp += "a=X-nat:1\r\n"
         sdp += f"m=audio {port} RTP/AVP {' '.join([str(int(i)) for i in supported_codecs])}\r\n"
         sdp += f"c=IN IP4 {ip}\r\n"
         sdp += "b=TIAS:64000\r\n"
+        sdp += "a=X-nat:1\r\n"
         sdp += f"a=rtcp:{port + 1} IN IP4 {ip}\r\n"
         sdp += "a=sendrecv\r\n"
         sdp += cls.get_rtpmap_lines()
