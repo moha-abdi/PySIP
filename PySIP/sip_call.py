@@ -349,10 +349,10 @@ class SipCall:
 
         if auth and received_message:
             # Handling INVITE with authentication
-            nonce, realm, ip, port = self.extract_auth_details(received_message)
+            nonce, realm, ip, port, qop, nc, cnonce = self.extract_auth_details(received_message)
             new_cseq = next(self.cseq_counter)
             uri = f"sip:{self.callee}@{self.server}:{self.port};transport={self.CTS}"
-            auth_header = self.generate_auth_header("INVITE", uri, nonce, realm)
+            auth_header = self.generate_auth_header("INVITE", uri, nonce, realm, qop, nc, cnonce)
             return self.construct_invite_message(
                 local_ip, local_port, new_cseq, auth_header, received_message
             )
@@ -367,25 +367,70 @@ class SipCall:
         realm = received_message.realm
         ip = received_message.public_ip
         port = received_message.rport
-        return nonce, realm, ip, port
+        
+        qop = received_message.qop
+        nc = None
+        cnonce = None
+        auth_header = received_message.get_header('WWW-Authenticate')
+        if auth_header and qop:
+            nc = "00000001"  # Initial nonce count
+            cnonce = ''.join(random.choices('0123456789abcdef', k=16))  # Random cnonce
+        
+        return nonce, realm, ip, port, qop, nc, cnonce
 
-    def generate_auth_header(self, method, uri, nonce, realm):
-        response = self.sip_core.generate_response(method, nonce, realm, uri)
-        return (
-            f'Authorization: Digest username="{self.username}", '
-            f'realm="{realm}", nonce="{nonce}", uri="{uri}", '
-            f'response="{response}", algorithm="MD5"\r\n'
+    def generate_auth_header(self, method, uri, nonce, realm, qop=None, nc=None, cnonce=None):
+        response = self.sip_core.generate_response(
+            method=method,
+            nonce=nonce,
+            realm=realm,
+            uri=uri,
+            qop=qop,
+            nc=nc,
+            cnonce=cnonce
         )
+        
+        # Build base Authorization header
+        auth_header = (
+            f'Authorization: Digest username="{self.username}", '
+            f'realm="{realm}", '
+            f'nonce="{nonce}", '
+            f'uri="{uri}", '
+            f'response="{response}", '
+            f'algorithm="MD5"'
+        )
+        
+        # Add qop parameters if present
+        if qop:
+            auth_header += f', qop=auth, nc={nc}, cnonce="{cnonce}"'
+        
+        return auth_header + '\r\n'
 
     def construct_invite_message(
         self, ip, port, cseq, auth_header=None, received_message=None
     ):
+        """
+        Construct INVITE message with support for both authentication types.
+        """
         # Common INVITE message components
         tag = self.dialogue.local_tag
         call_id = self.call_id
         branch_id = self.sip_core.gen_branch()
         transaction = self.dialogue.add_transaction(branch_id, "INVITE")
-
+        
+        # If we have a received message but no auth_header, we need to generate one
+        if received_message and not auth_header:
+            nonce, realm, ip, port, qop, nc, cnonce = self.extract_auth_details(received_message)
+            uri = f"sip:{self.callee}@{self.server}:{self.port};transport={self.CTS}"
+            auth_header = self.generate_auth_header(
+                method="INVITE",
+                uri=uri,
+                nonce=nonce,
+                realm=realm,
+                qop=qop,
+                nc=nc,
+                cnonce=cnonce
+            )
+        
         msg = (
             f"INVITE sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
             f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={branch_id};alias\r\n"
@@ -399,14 +444,14 @@ class SipCall:
             "Supported: replaces, timer\r\n"
             "Content-Type: application/sdp\r\n"
         )
-
-        # Addang the Authorization header if auth is required
+        
+        # Adding the Authorization header if auth is required
         if auth_header:
             msg += auth_header
-
+        
         body = str(self.dialogue.local_session_info)
         msg += f"Content-Length: {len(body.encode())}\r\n\r\n{body}"
-
+        
         return msg
 
     def ack_generator(self, transaction):

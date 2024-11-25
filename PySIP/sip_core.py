@@ -50,7 +50,7 @@ connection_ports = {
     ConnectionType.UDP: 5060,
     ConnectionType.TCP: 5060,
     ConnectionType.TLS: 5061,
-    ConnectionType.TLSv1: 5061
+    ConnectionType.TLSv1: 5061,
 }
 
 SAVE_TLS_KEYLOG = False
@@ -143,16 +143,22 @@ class SipCore:
     def gen_branch(self):
         return f"z9hG4bK-{str(uuid.uuid4())}"
 
-    def generate_response(self, method, nonce, realm, uri):
+    def generate_response(
+        self, method, nonce, realm, uri, qop=None, nc=None, cnonce=None
+    ):
         A1_string = self.username + ":" + realm + ":" + self.password
         A1_hash = hashlib.md5(A1_string.encode()).hexdigest()
-
         A2_string = (method + ":" + uri).encode()
         A2_hash = hashlib.md5(A2_string).hexdigest()
 
-        response_string = (A1_hash + ":" + nonce + ":" + A2_hash).encode()
-        response_hash = hashlib.md5(response_string).hexdigest()
+        if qop == "auth":
+            response_string = (
+                f"{A1_hash}:{nonce}:{nc}:{cnonce}:{qop}:{A2_hash}"
+            ).encode()
+        else:
+            response_string = (A1_hash + ":" + nonce + ":" + A2_hash).encode()
 
+        response_hash = hashlib.md5(response_string).hexdigest()
         return response_hash
 
     @staticmethod
@@ -176,7 +182,7 @@ class SipCore:
         message_hash = hmac.new(salt, message, hashlib.sha512).digest()
         hashb64 = base64.b64encode(message_hash).decode()
 
-        return Checksum(hashb64, timestamp) 
+        return Checksum(hashb64, timestamp)
 
     async def connect(self):
         self.is_running = asyncio.Event()
@@ -404,9 +410,9 @@ class SipDialogue:
         self.call_id = call_id
         self.local_tag = local_tag  # The tag of the party who initiated the dialogue
         self.remote_tag = remote_tag  # The tag of the other party
-        self.transactions: List[
-            SipTransaction
-        ] = []  # List to store transactions related to this dialogue
+        self.transactions: List[SipTransaction] = (
+            []
+        )  # List to store transactions related to this dialogue
         self.cseq = Counter(random.randint(1, 2000))
         self.state = DialogState.PREDIALOG  # Start with the PREDIALOG state
         self.events = {state: asyncio.Event() for state in DialogState}
@@ -475,7 +481,7 @@ class SipDialogue:
         self.events[self.state].set()
 
         if self.state != self.previous_state:
-            logger.log(logging.DEBUG, f"Dialog state changed to -> {self.state}") 
+            logger.log(logging.DEBUG, f"Dialog state changed to -> {self.state}")
 
     @property
     def local_session_info(self):
@@ -514,6 +520,7 @@ class SipMessage:
         self._rport = None
         self._branch = None
         self._did = None
+        self._qop = None
 
     @property
     def type(self):
@@ -627,6 +634,14 @@ class SipMessage:
     def realm(self, value):
         self._realm = value
 
+    @property
+    def qop(self):
+        return self._qop
+
+    @qop.setter
+    def qop(self, value):
+        self._qop = value
+
     def parse(self):
         data = self.data.split("\r\n\r\n")
         self.headers_data = data[0]
@@ -706,6 +721,7 @@ class SipMessage:
                 if auth_header:
                     self.nonce = auth_header.split('nonce="')[1].split('"')[0]
                     self.realm = auth_header.split('realm="')[1].split('"')[0]
+                    self.qop = auth_header.split("qop=")[1].split('"')[1]
                 # dialog_id
                 contact_header = self.get_header("Contact")
                 if contact_header:
@@ -742,8 +758,8 @@ class SipMessage:
 
         sdp = "v=0\r\n"
         sdp += f"o=- {random.randint(100000000, 999999999)} {random.randint(100000000, 999999999)} IN IP4 {ip}\r\n"
-        sdp += "s=PySIP Call\r\n" 
-        sdp += "b=AS:84\r\n" 
+        sdp += "s=PySIP Call\r\n"
+        sdp += "b=AS:84\r\n"
         sdp += "t=0 0\r\n"
         sdp += f"m=audio {port} RTP/AVP {' '.join([str(int(i)) for i in supported_codecs])}\r\n"
         sdp += f"c=IN IP4 {ip}\r\n"

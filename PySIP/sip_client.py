@@ -211,6 +211,9 @@ class SipClient:
     def build_register_message(
         self, auth=False, received_message=None, unregister=False
     ):
+        """
+        Build a SIP REGISTER message with or without authentication.
+        """
         # Generate unique identifiers for the message
         branch_id = str(uuid.uuid4()).upper()
         # Initialize transaction
@@ -228,7 +231,28 @@ class SipClient:
             self.register_tags["cseq"] = cseq
             to_tag = self.register_tags["remote_tag"] = received_message.to_tag
             uri = f"sip:{self.server}:{self.port};transport={self.CTS}"
-            response = self.sip_core.generate_response("REGISTER", nonce, realm, uri)
+
+            # Check for qop in WWW-Authenticate header
+            qop = received_message.qop
+            nc = None
+            cnonce = None
+            auth_header = received_message.get_header("WWW-Authenticate")
+            if auth_header and qop:
+                nc = "00000001"  # Initial nonce count
+                cnonce = "".join(
+                    random.choices("0123456789abcdef", k=16)
+                )  # Random cnonce
+
+            # Generate response with appropriate parameters
+            response = self.sip_core.generate_response(
+                method="REGISTER",
+                nonce=nonce,
+                realm=realm,
+                uri=uri,
+                qop=qop,
+                nc=nc,
+                cnonce=cnonce,
+            )
 
             # Adjust Via and Contact headers for public IP and port if available
             my_public_ip = self.my_public_ip
@@ -236,9 +260,25 @@ class SipClient:
             port = received_message.rport
             from_tag = self.register_tags["local_tag"]
             expires = ";expires=0" if unregister else ""
-            expires_field = f"Expires: {self.register_duration}\r\n" if not unregister else ""
+            expires_field = (
+                f"Expires: {self.register_duration}\r\n" if not unregister else ""
+            )
 
-            # Construct the REGISTER request with Authorization header
+            # Build Authorization header based on qop presence
+            auth_header = (
+                f'Authorization: Digest username="{self.username}", '
+                f'realm="{realm}", '
+                f'nonce="{nonce}", '
+                f'uri="{uri}", '
+                f'response="{response}", '
+                f'algorithm="MD5"'
+            )
+
+            if qop:
+                auth_header += f', qop=auth, nc={nc}, cnonce="{cnonce}"'
+            auth_header += "\r\n"
+
+            # Construct the complete REGISTER request with Authorization header
             msg = (
                 f"REGISTER sip:{self.server};transport={self.CTS} SIP/2.0\r\n"
                 f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={received_message.branch};alias\r\n"
@@ -249,7 +289,7 @@ class SipClient:
                 f"CSeq: {cseq} REGISTER\r\n"
                 f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>{expires}\r\n"
                 f"{expires_field}"
-                f'Authorization: Digest username="{self.username}", realm="{realm}", nonce="{nonce}", uri="{uri}", response="{response}", algorithm="MD5"\r\n'
+                f"{auth_header}"
                 f"Content-Length: 0\r\n\r\n"
             )
         else:
@@ -262,7 +302,9 @@ class SipClient:
 
             cseq = next(self.register_counter)
             expires = ";expires=0" if unregister else ""
-            expires_field = f"Expires: {self.register_duration}\r\n" if not unregister else ""
+            expires_field = (
+                f"Expires: {self.register_duration}\r\n" if not unregister else ""
+            )
             self.register_tags["type"] = "UNREGISTER" if unregister else "REGISTER"
 
             # Construct the REGISTER request without Authorization header
