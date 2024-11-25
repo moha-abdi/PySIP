@@ -5,11 +5,12 @@ import uuid
 import random
 
 from PySIP.sip_call import SipCall
+from PySIP.utils.retry_handler import RetryHandler
 
 from .sip_core import SipCore, SipMessage, Counter
 from .filters import SIPCompatibleMethods, SIPStatus, ConnectionType
 from .utils.logger import logger
-from .exceptions import NoPasswordFound
+from .exceptions import NoPasswordFound, OperationTimeout, SIPError
 
 
 __all__ = ["SipClient"]
@@ -62,6 +63,7 @@ class SipClient:
         self.my_public_ip = None
         self.my_private_ip = None
         self._callbacks: Dict[str, List[Callable]] = {}
+        self.retry_handler = RetryHandler()
 
     async def run(self):
         register_task = None
@@ -361,10 +363,30 @@ class SipClient:
         return
 
     async def register(self):
+        """Register with retry logic"""
         msg = self.build_register_message()
+        operation_id = f"REGISTER_{self.call_id}_{self.register_counter.current()}"
 
+        try:
+            success = await self.retry_handler.execute_with_retry(
+                lambda: self.sip_core.send(msg), operation_id, timeout=4.0
+            )
+            if success:
+                logger.debug(f"Successfully registered {self.username}")
+            return success
+
+        except OperationTimeout:
+            logger.error(f"Registration timed out for {self.username}")
+            return False
+
+        except SIPError as e:
+            logger.error(f"Registration failed for {self.username}: {str(e)}")
+            return False
+
+    async def _send_register(self):
+        """Internal method to send register message"""
+        msg = self.build_register_message()
         await self.sip_core.send(msg)
-        return
 
     async def message_handler(self, msg: SipMessage):
         # This is the main message handler inside the class
@@ -388,6 +410,8 @@ class SipClient:
         elif msg.status == SIPStatus(200) and msg.method == "REGISTER":
             # This is when we receive the response for the register
             logger.log(logging.DEBUG, "Successfully REGISTERED")
+            operation_id = f"REGISTER_{msg.call_id}_{msg.cseq}"
+            self.retry_handler.complete_operation(operation_id)
 
             # In case the response is of Un-register we set this
             if self.register_tags["type"] == "UNREGISTER":

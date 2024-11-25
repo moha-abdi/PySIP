@@ -18,3 +18,11 @@ class NoSupportedCodecsFound(Exception):
 class AudioStreamError(Exception):
     def __init__(self, *args: object) -> None:
         super().__init__(*args)
+
+
+class SIPError(Exception):
+    pass
+
+
+class OperationTimeout(SIPError):
+    pass
