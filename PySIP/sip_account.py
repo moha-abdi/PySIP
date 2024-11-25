@@ -105,16 +105,8 @@ class SipAccount:
         self.__pending_callbacks = []  # clear pending callbacks
 
         self.__client_task = asyncio.create_task(self.__sip_client.run())
-        try:
-            await asyncio.wait_for(self.__sip_client.registered.wait(), 4)
-            logger.log(
-                logging.INFO, f"Sip Account: {self.username} registered to the server."
-            )
-        except asyncio.TimeoutError:
-            logger.log(
-                logging.WARNING,
-                f"Failed register Sip Account: {self.username}.",
-            )
+        is_registered = await self.__sip_client.registered
+        return is_registered
 
     async def unregister(self):
         if self.__sip_client:

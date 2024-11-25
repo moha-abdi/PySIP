@@ -56,7 +56,7 @@ class SipClient:
         self.sip_core.on_message_callbacks.append(self.message_handler)
         self.register_counter = Counter(random.randint(1, 2000))
         self.register_tags = {"local_tag": "", "remote_tag": "", "type": "", "cseq": 0}
-        self.registered = asyncio.Event()
+        self.registered: asyncio.Future = asyncio.Future()
         self.unregistered = asyncio.Event()
         self.register_duration = register_duration
         self.caller_id = caller_id if caller_id else username
@@ -140,7 +140,7 @@ class SipClient:
 
         self.sip_core.is_running.clear()
         await self.sip_core.close_connections()
-        self.registered.clear()
+        self.registered = asyncio.Future()
 
     async def periodic_register(self, delay: float):
         while True:
@@ -372,15 +372,27 @@ class SipClient:
                 lambda: self.sip_core.send(msg), operation_id, timeout=4.0
             )
             if success:
-                logger.debug(f"Successfully registered {self.username}")
+                if self.registered and not self.registered.done():
+                    self.registered.set_result(True)
+
+                logger.log(
+                    logging.INFO,
+                    f"Sip Account: {self.username} registered to the server.",
+                )
+
             return success
 
         except OperationTimeout:
             logger.error(f"Registration timed out for {self.username}")
+            if self.registered and not self.registered.done():
+                self.registered.set_result(False)
             return False
 
         except SIPError as e:
             logger.error(f"Registration failed for {self.username}: {str(e)}")
+            if self.registered and not self.registered.done():
+                self.registered.set_result(False)
+
             return False
 
     async def _send_register(self):
@@ -409,7 +421,6 @@ class SipClient:
 
         elif msg.status == SIPStatus(200) and msg.method == "REGISTER":
             # This is when we receive the response for the register
-            logger.log(logging.DEBUG, "Successfully REGISTERED")
             operation_id = f"REGISTER_{msg.call_id}_{msg.cseq}"
             self.retry_handler.complete_operation(operation_id)
 
@@ -417,9 +428,6 @@ class SipClient:
             if self.register_tags["type"] == "UNREGISTER":
                 if msg.cseq == self.register_tags["cseq"]:
                     self.unregistered.set()
-
-            else:
-                self.registered.set()
 
         elif msg.data.startswith(
             "OPTIONS"
