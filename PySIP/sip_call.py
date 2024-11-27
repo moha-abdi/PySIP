@@ -510,7 +510,7 @@ class SipCall:
         msg += f"CSeq: {transaction.cseq} REFER\r\n"
         msg += f"Refer-To: {refer_to}\r\n"
         msg += f"Referred-By: {referred_by}\r\n"
-        msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>\r\n"
+        msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS}>\r\n"
         msg += "Content-Length: 0\r\n\r\n"
 
         return msg
@@ -569,7 +569,7 @@ class SipCall:
         msg += to_header
         msg += f"Call-ID: {data_parsed.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
-        msg += f"Contact: <sip:{self.username}@{self.my_public_ip};transport={self.CTS.upper()};ob>\r\n"
+        msg += f"Contact: <sip:{self.username}@{self.my_public_ip};transport={self.CTS.upper()}>\r\n"
         msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
         msg += "Supported: replaces, timer\r\n"
         msg += "Content-Type: application/sdp\r\n" if include_sdp else ""

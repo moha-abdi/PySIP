@@ -289,7 +289,7 @@ class SipClient:
                 f"To: <sip:{self.username}@{self.server}>;tag={to_tag}\r\n"
                 f"Call-ID: {call_id}\r\n"
                 f"CSeq: {cseq} REGISTER\r\n"
-                f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS};ob>{expires}\r\n"
+                f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS}>{expires}\r\n"
                 f"{expires_field}"
                 f"{auth_header}"
                 f"Content-Length: 0\r\n\r\n"
@@ -318,7 +318,7 @@ class SipClient:
                 f"To: <sip:{self.username}@{self.server}>\r\n"
                 f"Call-ID: {call_id}\r\n"
                 f"CSeq: {cseq} REGISTER\r\n"
-                f"Contact: <sip:{self.username}@{self.my_public_ip}:{my_public_port};transport={self.CTS};ob>{expires}\r\n"
+                f"Contact: <sip:{self.username}@{self.my_public_ip}:{my_public_port};transport={self.CTS}>{expires}\r\n"
                 f"{expires_field}"
                 f"Content-Length: 0\r\n\r\n"
             )
@@ -345,7 +345,7 @@ class SipClient:
 
         msg += f"Call-ID: {data_parsed.call_id}\r\n"
         msg += f"CSeq: {data_parsed.cseq} {data_parsed.method}\r\n"
-        msg += f"Contact: <sip:{self.username}@{my_public_ip}:{port};transport={self.CTS.upper()};ob>\r\n"
+        msg += f"Contact: <sip:{self.username}@{my_public_ip}:{port};transport={self.CTS.upper()}>\r\n"
         msg += f"Allow: {', '.join(SIPCompatibleMethods)}\r\n"
         msg += "Supported: replaces, timer\r\n"
         msg += "Content-Length: 0\r\n\r\n"
