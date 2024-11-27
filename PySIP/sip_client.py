@@ -229,9 +229,8 @@ class SipClient:
                 return
             nonce = received_message.nonce
             realm = received_message.realm
-            cseq = next(self.register_counter)
+            cseq = self.register_counter.current()
             self.register_tags["cseq"] = cseq
-            to_tag = self.register_tags["remote_tag"] = received_message.to_tag
             uri = f"sip:{self.server}:{self.port};transport={self.CTS}"
 
             # Check for qop in WWW-Authenticate header
@@ -286,7 +285,7 @@ class SipClient:
                 f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={received_message.branch};alias\r\n"
                 f"Max-Forwards: 70\r\n"
                 f"From: <sip:{self.caller_id}@{self.server}>;tag={from_tag}\r\n"
-                f"To: <sip:{self.username}@{self.server}>;tag={to_tag}\r\n"
+                f"To: <sip:{self.username}@{self.server}>\r\n"
                 f"Call-ID: {call_id}\r\n"
                 f"CSeq: {cseq} REGISTER\r\n"
                 f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS}>{expires}\r\n"
