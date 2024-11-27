@@ -641,8 +641,7 @@ class SipCall:
 
         if msg.status == SIPStatus(401) and msg.method == "INVITE":
             # Handling the auth of the invite
-            if not self.dialogue.remote_tag:
-                self.dialogue.remote_tag = msg.to_tag or ""
+            self.dialogue.remote_tag = msg.to_tag
             transaction = self.dialogue.find_transaction(msg.branch)
             if not transaction:
                 return
@@ -664,8 +663,7 @@ class SipCall:
             and self.username not in msg.get_header("To")
         ):
             # Handling successfull invite response
-            if not self.dialogue.remote_tag:
-                self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not set
+            self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not set
             logger.log(logging.DEBUG, "INVITE Successfull, dialog is established.")
             transaction = self.dialogue.add_transaction(
                 self.sip_core.gen_branch(), "ACK"
@@ -683,8 +681,7 @@ class SipCall:
                 CallState.RINGING if msg.status is SIPStatus(180) else CallState.DIALING
             )
             await self.update_call_state(st)
-            if not self.dialogue.remote_tag:
-                self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not already
+            self.dialogue.remote_tag = msg.to_tag or ""  # setting it if not already
             self.dialogue.auth_retry_count = 0  # reset the auth counter
             pass
 
@@ -751,8 +748,8 @@ class SipCall:
         if not msg.status:
             return
 
-        if not self.dialogue.remote_tag:
-            self.dialogue.remote_tag = msg.to_tag or ""
+        # reset the remote tag
+        self.dialogue.remote_tag = msg.to_tag or ""
 
         if not 400 <= msg.status.code <= 699:
             return
