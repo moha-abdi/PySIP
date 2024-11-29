@@ -750,6 +750,10 @@ class SipCall:
         self.dialogue.update_state(msg)
 
     async def error_handler(self, msg: SipMessage):
+        # If the call id is not same as the current then return
+        if msg.call_id != self.call_id:
+            return
+
         if not msg.status:
             return
 
