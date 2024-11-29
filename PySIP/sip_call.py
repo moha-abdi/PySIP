@@ -457,15 +457,16 @@ class SipCall:
     def ack_generator(self, transaction):
         _, port = self.sip_core.get_extra_info("sockname")
         ip = self.my_public_ip
+        request_uri = self.dialogue.remote_contact_uri or f"sip:{self.callee}@{self.server}:{self.port};transport={self.CTS}"
 
-        msg = f"ACK sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} SIP/2.0\r\n"
+        msg = f"ACK {request_uri} SIP/2.0\r\n"
         msg += f"Via: SIP/2.0/{self.CTS} {ip}:{port};rport;branch={transaction.branch_id};alias\r\n"
         msg += "Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} ACK\r\n"
-        msg += f"Route: <sip:{self.server}:{self.port};transport={self.CTS};lr>\r\n"
+        msg += f"Route: <{request_uri};lr>\r\n"
         msg += "Content-Length: 0\r\n\r\n"
 
         return msg
@@ -476,18 +477,20 @@ class SipCall:
 
         branch_id = self.sip_core.gen_branch()
         transaction = self.dialogue.add_transaction(branch_id, "BYE")
+        request_uri = self.dialogue.remote_contact_uri or f"sip:{self.callee}@{peer_ip}:{peer_port};transport={self.CTS}"
 
-        msg = f"BYE sip:{self.callee}@{peer_ip}:{peer_port};transport={self.CTS} SIP/2.0\r\n"
+        msg = f"BYE {request_uri} SIP/2.0\r\n"
         msg += (
             f"Via: SIP/2.0/{self.CTS} {self.my_public_ip}:{port};rport;"
             + f"branch={branch_id};alias\r\n"
         )
-        msg += 'Reason: Q.850;cause=16;text="normal call clearing"'
+        msg += 'Reason: Q.850;cause=16;text="normal call clearing"\r\n'
         msg += "Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
         msg += f"To: sip:{self.callee}@{self.server};tag={self.dialogue.remote_tag}\r\n"
         msg += f"Call-ID: {self.call_id}\r\n"
         msg += f"CSeq: {transaction.cseq} BYE\r\n"
+        msg += f"Route: <{request_uri};lr>\r\n"
         msg += "Content-Length: 0\r\n\r\n"
 
         return msg
@@ -500,8 +503,9 @@ class SipCall:
         transaction = self.dialogue.add_transaction(branch_id, "REFER")
         refer_to = f"sip:{refer_to_callee}@{self.server};transport={self.CTS}"
         referred_by = f"sip:{self.caller_id}@{self.server}"
+        request_uri= self.dialogue.remote_contact_uri or f"sip:{self.callee}@{self.server}:{self.port};transport={self.CTS}"
 
-        msg = f"REFER sip:{self.callee}@{self.server}:{self.port};transport={self.CTS} sip/2.0\r\n"
+        msg = f"REFER {request_uri} sip/2.0\r\n"
         msg += f"Via: sip/2.0/{self.CTS} {ip}:{port};rport;branch={branch_id};alias\r\n"
         msg += "Max-Forwards: 70\r\n"
         msg += f"From: sip:{self.caller_id}@{self.server};tag={self.dialogue.local_tag}\r\n"
@@ -511,6 +515,7 @@ class SipCall:
         msg += f"Refer-To: {refer_to}\r\n"
         msg += f"Referred-By: {referred_by}\r\n"
         msg += f"Contact: <sip:{self.username}@{ip}:{port};transport={self.CTS}>\r\n"
+        msg += f"Route: <{request_uri};lr>\r\n"
         msg += "Content-Length: 0\r\n\r\n"
 
         return msg
@@ -668,10 +673,10 @@ class SipCall:
             transaction = self.dialogue.add_transaction(
                 self.sip_core.gen_branch(), "ACK"
             )
+            self.dialogue.update_state(msg)
             ack_message = self.ack_generator(transaction)
             self.dialogue.auth_retry_count = 0  # reset the auth counter
             await self.sip_core.send(ack_message)
-            self.dialogue.update_state(msg)
             await self.update_call_state(CallState.ANSWERED)
             return
 

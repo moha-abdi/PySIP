@@ -420,6 +420,7 @@ class SipDialogue:
         self.auth_retry_count = 0
         self._local_session_info: Optional[SDPParser] = None
         self._remote_session_info: Optional[SDPParser] = None
+        self.remote_contact_uri: Optional[str] = None
 
     def matches(self, call_id, local_tag, remote_tag):
         # We now check if the provided identifiers match this dialogue's identifiers
@@ -449,6 +450,7 @@ class SipDialogue:
     def update_state(self, message):
         # This method should be called with each message received/sent that pertains to this dialog
         self.previous_state = self.state
+
         is_provisional_response = (str(message.status).startswith("18")) and (
             message.method == "INVITE"
         )
@@ -468,11 +470,12 @@ class SipDialogue:
                 self._remote_session_info = SDPParser(message.body)
 
         elif (
-            self.state in [DialogState.INITIAL, DialogState.EARLY] and is_final_response
+            self.state in [DialogState.PREDIALOG, DialogState.INITIAL, DialogState.EARLY] and is_final_response
         ):
             self.state = DialogState.CONFIRMED
             if message.body is not None:
                 self._remote_session_info = SDPParser(message.body)
+                self.update_remote_contact(message.get_header("Contact"))
         elif message.method == "BYE" and message.status is SIPStatus.OK:
             self.state = DialogState.TERMINATED
         elif message.status == SIPStatus(487) and message.method == "INVITE":
@@ -482,6 +485,13 @@ class SipDialogue:
 
         if self.state != self.previous_state:
             logger.log(logging.DEBUG, f"Dialog state changed to -> {self.state}")
+
+    def update_remote_contact(self, contact_header: str) -> None:
+        if contact_header:
+            match = re.search(r'<(.+?)>', contact_header)
+            if match:
+                self.remote_contact_uri = match.group(1)
+                logger.debug(f"Updated remote contact URI: {self.remote_contact_uri}")
 
     @property
     def local_session_info(self):
