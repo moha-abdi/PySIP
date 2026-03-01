@@ -33,6 +33,7 @@ class SipAccount:
         self.hostname, self.port = self.__parse_hostname(hostname, connection_type)
         self.register_duration = register_duration
         self.__client_task = None
+        self.main_loop = self.__client_task
         self.__sip_client = None
         self.__calls: List[SipCall] = []
         self.__pending_callbacks: List[Callable] = []
@@ -105,6 +106,7 @@ class SipAccount:
         self.__pending_callbacks = []  # clear pending callbacks
 
         self.__client_task = asyncio.create_task(self.__sip_client.run())
+        self.main_loop = self.__client_task # use it to listen for incoming calls with await <accout object>.main_loop
         is_registered = await self.__sip_client.registered
         return is_registered
 
